@@ -1,94 +1,128 @@
 const state = {
-  view: "waiter",
-  waiters: [],
+  token: localStorage.getItem("restaurant_token") || "",
+  me: null,
+  settings: null,
+  users: [],
   products: [],
   orders: [],
+  audit: [],
   report: null,
-  selectedWaiterId: "",
+  view: "waiter",
+  login: { username: "admin", password: "admin123" },
   table: "",
   orderNotes: "",
   cart: [],
   search: "",
   category: "all",
   reportDate: new Date().toISOString().slice(0, 10),
+  payment: { method: "cash", discount: 0, amountReceived: "", tip: 0, note: "" },
+  productForm: { id: "", name: "", category: "", price: "", available: true, sort: 999 },
+  closeDay: { countedCash: "", note: "" },
   toast: ""
 };
 
-const statusLabels = {
-  sent: "Sent",
-  received: "Received",
-  preparing: "Preparing",
-  done: "Done",
-  paid: "Paid"
-};
-
-const statusRank = {
-  sent: 1,
-  received: 2,
-  preparing: 3,
-  done: 4
-};
-
 const app = document.getElementById("app");
+const statusLabels = { sent: "Sent", received: "Received", preparing: "Preparing", done: "Done", paid: "Paid", canceled: "Canceled" };
+const statusRank = { sent: 1, received: 2, preparing: 3, done: 4 };
 
-function formatMoney(value) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "EUR"
-  }).format(Number(value || 0));
+function money(value) {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: (state.settings && state.settings.currency) || "EUR" }).format(Number(value || 0));
 }
 
 function escapeHtml(value) {
-  return String(value || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
+  return String(value || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
 }
 
-function showToast(message) {
+function toast(message) {
   state.toast = message;
   render();
-  window.clearTimeout(showToast.timer);
-  showToast.timer = window.setTimeout(() => {
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => {
     state.toast = "";
     render();
-  }, 2800);
+  }, 3000);
 }
 
 async function api(path, options) {
   const response = await fetch(path, {
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: state.token ? `Bearer ${state.token}` : ""
+    },
     ...options
   });
   const data = await response.json();
   if (!response.ok) {
-    throw new Error(data.error || "Something went wrong");
+    if (response.status === 401) logout(false);
+    throw new Error(data.error || "Request failed");
   }
   return data;
 }
 
-async function loadBootstrap() {
-  const data = await api("/api/bootstrap");
-  state.waiters = data.waiters;
-  state.products = data.products;
-  state.orders = data.orders;
-  state.selectedWaiterId = state.selectedWaiterId || (state.waiters[0] && state.waiters[0].id) || "";
-  await loadReport();
+function allowedViews() {
+  if (!state.me) return [];
+  if (state.me.role === "admin") return ["waiter", "kitchen", "reports", "admin"];
+  if (state.me.role === "kitchen") return ["kitchen"];
+  return ["waiter"];
+}
+
+async function bootstrap() {
+  if (!state.token) {
+    render();
+    return;
+  }
+  try {
+    const data = await api("/api/bootstrap");
+    state.me = data.me;
+    state.settings = data.settings;
+    state.users = data.users || [];
+    state.products = data.products;
+    state.orders = data.orders;
+    if (allowedViews().indexOf(state.view) === -1) state.view = allowedViews()[0];
+    if (state.view === "reports") await loadReport();
+    if (state.view === "admin") await loadAudit();
+    render();
+  } catch (error) {
+    toast(error.message);
+    render();
+  }
+}
+
+async function login() {
+  try {
+    const data = await api("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify(state.login)
+    });
+    state.token = data.token;
+    localStorage.setItem("restaurant_token", state.token);
+    state.me = data.user;
+    state.view = allowedViews()[0] || "waiter";
+    await bootstrap();
+    toast(`Logged in as ${data.user.name}`);
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+async function logout(callApi = true) {
+  if (callApi && state.token) {
+    try { await api("/api/auth/logout", { method: "POST" }); } catch (error) {}
+  }
+  localStorage.removeItem("restaurant_token");
+  state.token = "";
+  state.me = null;
+  state.orders = [];
   render();
 }
 
-async function loadOrders(silent) {
+async function refreshOrders(silent) {
+  if (!state.token) return;
   try {
     state.orders = await api("/api/orders");
-    if (!silent) {
-      render();
-    }
+    if (!silent) render();
   } catch (error) {
-    if (!silent) {
-      showToast(error.message);
-    }
+    if (!silent) toast(error.message);
   }
 }
 
@@ -96,149 +130,182 @@ async function loadReport() {
   state.report = await api(`/api/reports/day?date=${encodeURIComponent(state.reportDate)}`);
 }
 
+async function loadAudit() {
+  state.audit = await api("/api/audit");
+}
+
 function categories() {
   return ["all"].concat(Array.from(new Set(state.products.map(product => product.category))));
 }
 
-function filteredProducts() {
+function menuProducts(includeUnavailable) {
   const query = state.search.trim().toLowerCase();
   return state.products.filter(product => {
-    const matchesCategory = state.category === "all" || product.category === state.category;
-    const matchesSearch = !query || product.name.toLowerCase().indexOf(query) > -1;
-    return matchesCategory && matchesSearch;
+    if (!includeUnavailable && product.available === false) return false;
+    if (state.category !== "all" && product.category !== state.category) return false;
+    return !query || product.name.toLowerCase().indexOf(query) > -1;
   });
 }
 
 function cartTotal() {
   return state.cart.reduce((sum, item) => {
-    const product = state.products.find(productItem => productItem.id === item.productId);
+    const product = state.products.find(candidate => candidate.id === item.productId);
     return sum + (product ? product.price * item.quantity : 0);
   }, 0);
 }
 
-function addToCart(productId) {
+function addProduct(productId) {
+  const product = state.products.find(item => item.id === productId);
+  if (!product || product.available === false) return;
   const existing = state.cart.find(item => item.productId === productId);
-  if (existing) {
-    existing.quantity += 1;
-  } else {
-    state.cart.push({ productId, quantity: 1, note: "" });
-  }
+  if (existing) existing.quantity += 1;
+  else state.cart.push({ productId, quantity: 1, note: "" });
   render();
 }
 
-function updateCart(productId, change) {
-  const existing = state.cart.find(item => item.productId === productId);
-  if (!existing) {
-    return;
-  }
-  existing.quantity += change;
-  if (existing.quantity < 1) {
-    state.cart = state.cart.filter(item => item.productId !== productId);
-  }
+function updateCart(productId, amount) {
+  const item = state.cart.find(candidate => candidate.productId === productId);
+  if (!item) return;
+  item.quantity += amount;
+  if (item.quantity < 1) state.cart = state.cart.filter(candidate => candidate.productId !== productId);
   render();
-}
-
-function removeFromCart(productId) {
-  state.cart = state.cart.filter(item => item.productId !== productId);
-  render();
-}
-
-function updateCartNote(productId, note) {
-  const existing = state.cart.find(item => item.productId === productId);
-  if (existing) {
-    existing.note = note;
-  }
 }
 
 async function sendOrder() {
   try {
     const order = await api("/api/orders", {
       method: "POST",
-      body: JSON.stringify({
-        waiterId: state.selectedWaiterId,
-        table: state.table,
-        notes: state.orderNotes,
-        items: state.cart
-      })
+      body: JSON.stringify({ table: state.table, notes: state.orderNotes, items: state.cart })
     });
     state.orders.unshift(order);
     state.table = "";
     state.orderNotes = "";
     state.cart = [];
-    showToast(`Order #${order.number} sent to kitchen`);
+    toast(`Order #${order.number} sent`);
   } catch (error) {
-    showToast(error.message);
+    toast(error.message);
   }
 }
 
-async function setKitchenStatus(orderId, status) {
+async function setStatus(orderId, status) {
   try {
-    const updated = await api(`/api/orders/${orderId}/status`, {
-      method: "PATCH",
-      body: JSON.stringify({ status })
-    });
-    replaceOrder(updated);
-    showToast(`Order #${updated.number} is ${statusLabels[updated.status].toLowerCase()}`);
+    const order = await api(`/api/orders/${orderId}/status`, { method: "PATCH", body: JSON.stringify({ status }) });
+    replaceOrder(order);
+    toast(`Order #${order.number}: ${statusLabels[status]}`);
   } catch (error) {
-    showToast(error.message);
+    toast(error.message);
   }
 }
 
-async function markPaid(orderId) {
+async function payOrder(orderId) {
   try {
-    const updated = await api(`/api/orders/${orderId}/paid`, { method: "PATCH" });
-    replaceOrder(updated);
-    await loadReport();
-    showToast(`Order #${updated.number} closed as paid`);
+    const order = await api(`/api/orders/${orderId}/paid`, { method: "PATCH", body: JSON.stringify(state.payment) });
+    replaceOrder(order);
+    state.payment = { method: "cash", discount: 0, amountReceived: "", tip: 0, note: "" };
+    toast(`Order #${order.number} paid`);
   } catch (error) {
-    showToast(error.message);
+    toast(error.message);
+  }
+}
+
+async function cancelOrder(orderId) {
+  const reason = prompt("Cancel reason");
+  if (!reason) return;
+  try {
+    const order = await api(`/api/orders/${orderId}/cancel`, { method: "PATCH", body: JSON.stringify({ reason }) });
+    replaceOrder(order);
+    toast(`Order #${order.number} canceled`);
+  } catch (error) {
+    toast(error.message);
   }
 }
 
 function replaceOrder(order) {
-  state.orders = state.orders.map(item => (item.id === order.id ? order : item));
+  state.orders = state.orders.map(item => item.id === order.id ? order : item);
   render();
 }
 
-function activeOrders() {
-  return state.orders.filter(order => order.paymentStatus !== "paid");
+async function saveProduct() {
+  try {
+    const payload = {
+      name: state.productForm.name,
+      category: state.productForm.category,
+      price: Number(state.productForm.price),
+      available: state.productForm.available,
+      sort: Number(state.productForm.sort || 999)
+    };
+    const path = state.productForm.id ? `/api/products/${state.productForm.id}` : "/api/products";
+    const method = state.productForm.id ? "PATCH" : "POST";
+    const product = await api(path, { method, body: JSON.stringify(payload) });
+    const exists = state.products.some(item => item.id === product.id);
+    state.products = exists ? state.products.map(item => item.id === product.id ? product : item) : state.products.concat(product);
+    resetProductForm();
+    await loadAudit();
+    toast("Menu saved");
+  } catch (error) {
+    toast(error.message);
+  }
 }
 
-function paidOrders() {
-  return state.orders.filter(order => order.paymentStatus === "paid");
+function editProduct(id) {
+  const product = state.products.find(item => item.id === id);
+  if (!product) return;
+  state.productForm = { ...product };
+  render();
+}
+
+function resetProductForm() {
+  state.productForm = { id: "", name: "", category: "", price: "", available: true, sort: 999 };
+}
+
+async function closeDay() {
+  try {
+    const closure = await api("/api/reports/close-day", {
+      method: "POST",
+      body: JSON.stringify({ date: state.reportDate, countedCash: state.closeDay.countedCash, note: state.closeDay.note })
+    });
+    state.closeDay = { countedCash: "", note: "" };
+    await loadReport();
+    toast(`Day closed. Expected cash: ${money(closure.expectedCash)}`);
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+function activeOrders() {
+  return state.orders.filter(order => order.paymentStatus === "open");
+}
+
+function closedOrders() {
+  return state.orders.filter(order => order.paymentStatus !== "open");
 }
 
 function orderCard(order, context) {
-  const isPaid = order.paymentStatus === "paid";
-  const status = isPaid ? "paid" : order.status;
+  const status = order.paymentStatus === "paid" ? "paid" : order.status;
   const items = order.items.map(item => `
     <li>
-      <span>
-        <strong>${item.quantity}x ${escapeHtml(item.name)}</strong>
-        ${item.note ? `<small>${escapeHtml(item.note)}</small>` : ""}
-      </span>
-      <strong>${formatMoney(item.price * item.quantity)}</strong>
+      <span><strong>${item.quantity}x ${escapeHtml(item.name)}</strong>${item.note ? `<small>${escapeHtml(item.note)}</small>` : ""}</span>
+      <strong>${money(item.price * item.quantity)}</strong>
     </li>
   `).join("");
 
   return `
-    <article class="order-card">
+    <article class="order-card ${order.paymentStatus !== "open" ? "closed" : ""}">
       <div class="order-card-header">
         <div>
           <h3>#${order.number} - ${escapeHtml(order.table)}</h3>
           <p>${escapeHtml(order.waiterName)} - ${new Date(order.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>
         </div>
-        <span class="status ${status}">${statusLabels[status]}</span>
+        <span class="status ${status}">${statusLabels[status] || status}</span>
       </div>
       <div class="order-card-body">
-        <div class="status-flow">
-          ${["sent", "received", "preparing", "done"].map(step => `
-            <span class="flow-step ${statusRank[order.status] >= statusRank[step] ? "active" : ""}"></span>
-          `).join("")}
-        </div>
+        ${order.paymentStatus === "open" ? `<div class="status-flow">${["sent", "received", "preparing", "done"].map(step => `<span class="flow-step ${statusRank[order.status] >= statusRank[step] ? "active" : ""}"></span>`).join("")}</div>` : ""}
         <ul class="line-items">${items}</ul>
         ${order.notes ? `<p><strong>Note:</strong> ${escapeHtml(order.notes)}</p>` : ""}
-        <div class="total-row"><span>Total</span><span>${formatMoney(order.total)}</span></div>
+        ${order.discount ? `<div class="line"><span>Discount</span><strong>-${money(order.discount)}</strong></div>` : ""}
+        <div class="total-row"><span>Total</span><span>${money(order.total)}</span></div>
+        ${order.payment ? `<p>Payment: ${escapeHtml(order.payment.method)}${order.payment.tip ? `, tip ${money(order.payment.tip)}` : ""}</p>` : ""}
+        ${order.paymentStatus === "void" ? `<p>Void: ${escapeHtml(order.canceledReason)}</p>` : ""}
         ${orderActions(order, context)}
       </div>
     </article>
@@ -246,124 +313,77 @@ function orderCard(order, context) {
 }
 
 function orderActions(order, context) {
-  if (order.paymentStatus === "paid") {
-    return "";
-  }
-
+  if (order.paymentStatus !== "open") return "";
   if (context === "kitchen") {
     return `
       <div class="order-actions">
-        <button class="small-action" data-action="kitchen-status" data-id="${order.id}" data-status="received" ${order.status !== "sent" ? "disabled" : ""}>Confirm</button>
-        <button class="small-action" data-action="kitchen-status" data-id="${order.id}" data-status="preparing" ${statusRank[order.status] < 2 || order.status === "preparing" || order.status === "done" ? "disabled" : ""}>Prepare</button>
-        <button class="small-action ready" data-action="kitchen-status" data-id="${order.id}" data-status="done" ${order.status !== "preparing" ? "disabled" : ""}>Done</button>
+        <button class="small-action" data-action="status" data-id="${order.id}" data-status="received" ${order.status !== "sent" ? "disabled" : ""}>Confirm</button>
+        <button class="small-action" data-action="status" data-id="${order.id}" data-status="preparing" ${order.status !== "received" ? "disabled" : ""}>Prepare</button>
+        <button class="small-action ready" data-action="status" data-id="${order.id}" data-status="done" ${["received", "preparing"].indexOf(order.status) === -1 ? "disabled" : ""}>Done</button>
       </div>
     `;
   }
-
   return `
-    <div class="order-actions">
-      <button class="small-action ready" data-action="paid" data-id="${order.id}" ${order.status !== "done" ? "disabled" : ""}>Mark paid</button>
+    <div class="payment-box">
+      <select class="select compact" data-action="pay-method">
+        ${["cash", "card", "mixed", "other"].map(method => `<option value="${method}" ${state.payment.method === method ? "selected" : ""}>${method}</option>`).join("")}
+      </select>
+      <input class="input compact" type="number" step="0.01" data-action="pay-discount" value="${escapeHtml(state.payment.discount)}" placeholder="Discount">
+      <input class="input compact" type="number" step="0.01" data-action="pay-tip" value="${escapeHtml(state.payment.tip)}" placeholder="Tip">
+      <button class="small-action ready" data-action="paid" data-id="${order.id}" ${order.status !== "done" ? "disabled" : ""}>Paid</button>
+      <button class="small-action danger" data-action="cancel" data-id="${order.id}">Void</button>
     </div>
   `;
 }
 
+function renderLogin() {
+  return `
+    <main class="login-screen">
+      <section class="login-card">
+        <div class="brand big"><div class="brand-mark">RO</div><div><h1>Restaurant Orders</h1><span>Secure staff access</span></div></div>
+        <div class="field"><label>Username</label><input class="input" data-action="login-username" value="${escapeHtml(state.login.username)}"></div>
+        <div class="field"><label>Password</label><input class="input" type="password" data-action="login-password" value="${escapeHtml(state.login.password)}"></div>
+        <button class="primary" data-action="login">Log in</button>
+        <p class="empty">Defaults: admin/admin123, kitchen/kitchen123, arta/waiter123, jon/waiter123.</p>
+      </section>
+      ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}
+    </main>
+  `;
+}
+
 function renderWaiter() {
-  const productCards = filteredProducts().map(product => `
+  const products = menuProducts(false).map(product => `
     <button class="product" data-action="add-product" data-id="${product.id}">
-      <strong>${escapeHtml(product.name)}</strong>
-      <span>${escapeHtml(product.category)}</span>
-      <span class="price">${formatMoney(product.price)}</span>
+      <strong>${escapeHtml(product.name)}</strong><span>${escapeHtml(product.category)}</span><span class="price">${money(product.price)}</span>
     </button>
   `).join("");
-
-  const cartItems = state.cart.map(item => {
-    const product = state.products.find(productItem => productItem.id === item.productId);
-    if (!product) {
-      return "";
-    }
-
+  const cart = state.cart.map(item => {
+    const product = state.products.find(candidate => candidate.id === item.productId);
+    if (!product) return "";
     return `
       <div class="cart-item">
-        <div>
-          <h3>${escapeHtml(product.name)}</h3>
-          <p>${formatMoney(product.price)} each</p>
-          <input class="input" data-action="cart-note" data-id="${product.id}" value="${escapeHtml(item.note)}" placeholder="Kitchen note">
-        </div>
-        <div class="quantity">
-          <button class="icon-button" data-action="cart-minus" data-id="${product.id}" title="Decrease">-</button>
-          <strong>${item.quantity}</strong>
-          <button class="icon-button" data-action="cart-plus" data-id="${product.id}" title="Increase">+</button>
-          <button class="icon-button danger" data-action="cart-remove" data-id="${product.id}" title="Remove">x</button>
-        </div>
+        <div><h3>${escapeHtml(product.name)}</h3><p>${money(product.price)} each</p><input class="input" data-action="cart-note" data-id="${product.id}" value="${escapeHtml(item.note)}" placeholder="Kitchen note"></div>
+        <div class="quantity"><button class="icon-button" data-action="cart-minus" data-id="${product.id}">-</button><strong>${item.quantity}</strong><button class="icon-button" data-action="cart-plus" data-id="${product.id}">+</button></div>
       </div>
     `;
   }).join("");
-
-  const active = activeOrders();
   return `
     <div class="workspace">
-      <section class="panel">
-        <div class="panel-header">
-          <div>
-            <h2>New order</h2>
-            <p>Select waiter, table, products, then send it to the kitchen.</p>
-          </div>
-        </div>
+      <section class="panel"><div class="panel-header"><div><h2>New order</h2><p>${escapeHtml(state.me.name)} is taking this order.</p></div></div>
         <div class="panel-body">
           <div class="field-grid">
-            <div class="field">
-              <label for="waiter">Waiter</label>
-              <select class="select" id="waiter" data-action="waiter-select">
-                ${state.waiters.map(waiter => `<option value="${waiter.id}" ${waiter.id === state.selectedWaiterId ? "selected" : ""}>${escapeHtml(waiter.name)}</option>`).join("")}
-              </select>
-            </div>
-            <div class="field">
-              <label for="table">Table</label>
-              <input class="input" id="table" data-action="table-input" value="${escapeHtml(state.table)}" placeholder="Table 4">
-            </div>
-            <div class="field full">
-              <label for="notes">Order note</label>
-              <textarea class="textarea" id="notes" data-action="order-notes" placeholder="Allergy, timing, customer request">${escapeHtml(state.orderNotes)}</textarea>
-            </div>
+            <div class="field"><label>Table</label><input class="input" data-action="table" value="${escapeHtml(state.table)}" placeholder="Table 4"></div>
+            <div class="field"><label>Search</label><input class="input" data-action="search" value="${escapeHtml(state.search)}" placeholder="Menu item"></div>
+            <div class="field"><label>Category</label><select class="select" data-action="category">${categories().map(category => `<option value="${category}" ${state.category === category ? "selected" : ""}>${category === "all" ? "All categories" : escapeHtml(category)}</option>`).join("")}</select></div>
+            <div class="field full"><label>Order note</label><textarea class="textarea" data-action="order-notes">${escapeHtml(state.orderNotes)}</textarea></div>
           </div>
-
-          <div class="menu-tools">
-            <input class="input" data-action="search" value="${escapeHtml(state.search)}" placeholder="Search menu">
-            <select class="select" data-action="category">
-              ${categories().map(category => `<option value="${category}" ${category === state.category ? "selected" : ""}>${category === "all" ? "All categories" : escapeHtml(category)}</option>`).join("")}
-            </select>
-          </div>
-          <div class="product-grid">${productCards || `<p class="empty">No products found.</p>`}</div>
+          <div class="product-grid">${products || `<p class="empty">No available products.</p>`}</div>
         </div>
       </section>
-
-      <aside class="panel">
-        <div class="panel-header">
-          <div>
-            <h2>Current ticket</h2>
-            <p>${state.cart.length} selected item${state.cart.length === 1 ? "" : "s"}</p>
-          </div>
-        </div>
-        <div class="panel-body">
-          <div class="cart-list">${cartItems || `<p class="empty">Tap products to build the order.</p>`}</div>
-          <div class="cart-footer">
-            <div class="total-row"><span>Total</span><span>${formatMoney(cartTotal())}</span></div>
-            <button class="primary" data-action="send-order" ${state.cart.length ? "" : "disabled"}>Send to kitchen</button>
-          </div>
-        </div>
+      <aside class="panel"><div class="panel-header"><div><h2>Ticket</h2><p>${state.cart.length} item${state.cart.length === 1 ? "" : "s"}</p></div></div>
+        <div class="panel-body"><div class="cart-list">${cart || `<p class="empty">Tap products to add them.</p>`}</div><div class="cart-footer"><div class="total-row"><span>Total</span><span>${money(cartTotal())}</span></div><button class="primary" data-action="send-order" ${state.cart.length ? "" : "disabled"}>Send to kitchen</button></div></div>
       </aside>
-
-      <section class="panel" style="grid-column: 1 / -1;">
-        <div class="panel-header">
-          <div>
-            <h2>Waiter dashboard</h2>
-            <p>Track kitchen progress and close completed orders after payment.</p>
-          </div>
-        </div>
-        <div class="panel-body">
-          <div class="order-list">${active.map(order => orderCard(order, "waiter")).join("") || `<p class="empty">No active orders yet.</p>`}</div>
-        </div>
-      </section>
+      <section class="panel span"><div class="panel-header"><div><h2>My active orders</h2><p>Close paid orders only after the kitchen marks them done.</p></div></div><div class="panel-body"><div class="order-list">${activeOrders().map(order => orderCard(order, "waiter")).join("") || `<p class="empty">No active orders.</p>`}</div></div></section>
     </div>
   `;
 }
@@ -371,100 +391,74 @@ function renderWaiter() {
 function renderKitchen() {
   const columns = [
     { title: "New", statuses: ["sent"] },
-    { title: "In progress", statuses: ["received", "preparing"] },
+    { title: "Cooking", statuses: ["received", "preparing"] },
     { title: "Ready", statuses: ["done"] }
   ];
-
-  return `
-    <section class="kitchen-grid">
-      ${columns.map(column => {
-        const orders = activeOrders().filter(order => column.statuses.indexOf(order.status) > -1);
-        return `
-          <div class="column">
-            <h2>${column.title}</h2>
-            <div class="order-list">${orders.map(order => orderCard(order, "kitchen")).join("") || `<p class="empty">Nothing here.</p>`}</div>
-          </div>
-        `;
-      }).join("")}
-    </section>
-  `;
+  return `<section class="kitchen-grid">${columns.map(column => {
+    const orders = activeOrders().filter(order => column.statuses.indexOf(order.status) > -1);
+    return `<div class="column"><h2>${column.title}</h2><div class="order-list">${orders.map(order => orderCard(order, "kitchen")).join("") || `<p class="empty">Nothing here.</p>`}</div></div>`;
+  }).join("")}</section>`;
 }
 
 function renderReports() {
-  const report = state.report || { total: 0, orderCount: 0, byWaiter: [], orders: [] };
+  const report = state.report || { total: 0, orderCount: 0, voidCount: 0, discounts: 0, tips: 0, byWaiter: [], byMethod: [], orders: [], voidOrders: [] };
   return `
     <section class="report-grid">
-      <aside class="panel">
-        <div class="panel-header">
-          <div>
-            <h2>Daily totals</h2>
-            <p>Paid orders only.</p>
-          </div>
-        </div>
+      <aside class="panel"><div class="panel-header"><div><h2>End of day</h2><p>Paid sales, voids, and cash control.</p></div></div>
         <div class="panel-body cart-list">
-          <div class="field">
-            <label for="report-date">Date</label>
-            <input class="input" id="report-date" type="date" data-action="report-date" value="${escapeHtml(state.reportDate)}">
-          </div>
-          <div class="metric">
-            <span>Total money</span>
-            <strong>${formatMoney(report.total)}</strong>
-          </div>
-          <div class="metric">
-            <span>Paid orders</span>
-            <strong>${report.orderCount}</strong>
-          </div>
+          <div class="field"><label>Date</label><input class="input" type="date" data-action="report-date" value="${escapeHtml(state.reportDate)}"></div>
+          <div class="metric"><span>Total sales</span><strong>${money(report.total)}</strong></div>
+          <div class="metric"><span>Paid orders</span><strong>${report.orderCount}</strong></div>
+          <div class="metric"><span>Voids</span><strong>${report.voidCount}</strong></div>
+          <div class="field"><label>Counted cash</label><input class="input" type="number" step="0.01" data-action="close-cash" value="${escapeHtml(state.closeDay.countedCash)}"></div>
+          <div class="field"><label>Closing note</label><textarea class="textarea" data-action="close-note">${escapeHtml(state.closeDay.note)}</textarea></div>
+          <button class="primary" data-action="close-day">Close day</button>
         </div>
       </aside>
-      <section class="panel">
-        <div class="panel-header">
-          <div>
-            <h2>Breakdown</h2>
-            <p>Waiter totals and closed tickets for the selected day.</p>
-          </div>
-        </div>
+      <section class="panel"><div class="panel-header"><div><h2>Report</h2><p>Breakdown for ${escapeHtml(report.date || state.reportDate)}.</p></div></div>
         <div class="panel-body">
-          <h3 class="section-title">By waiter</h3>
-          <div class="report-list" style="margin: 12px 0 20px;">
-            ${report.byWaiter.map(row => `
-              <div class="report-row">
-                <span>${escapeHtml(row.waiterName)} (${row.orders})</span>
-                <strong>${formatMoney(row.total)}</strong>
-              </div>
-            `).join("")}
-          </div>
-          <h3 class="section-title">Paid orders</h3>
-          <div class="order-list" style="margin-top: 12px;">
-            ${report.orders.map(order => orderCard(order, "report")).join("") || `<p class="empty">No paid orders for this day.</p>`}
-          </div>
+          <div class="metrics-row"><div class="metric"><span>Subtotal</span><strong>${money(report.subtotal)}</strong></div><div class="metric"><span>Discounts</span><strong>${money(report.discounts)}</strong></div><div class="metric"><span>Tips</span><strong>${money(report.tips)}</strong></div></div>
+          <h3 class="section-title">Payment methods</h3><div class="report-list">${report.byMethod.map(row => `<div class="report-row"><span>${escapeHtml(row.method)} (${row.orders})</span><strong>${money(row.total)}</strong></div>`).join("")}</div>
+          <h3 class="section-title">Waiters</h3><div class="report-list">${report.byWaiter.map(row => `<div class="report-row"><span>${escapeHtml(row.waiterName)} (${row.orders})</span><strong>${money(row.total)}</strong></div>`).join("")}</div>
+          <h3 class="section-title">Paid orders</h3><div class="order-list">${report.orders.map(order => orderCard(order, "report")).join("") || `<p class="empty">No paid orders.</p>`}</div>
         </div>
       </section>
     </section>
   `;
 }
 
-function render() {
-  const body = state.view === "kitchen"
-    ? renderKitchen()
-    : state.view === "reports"
-      ? renderReports()
-      : renderWaiter();
+function renderAdmin() {
+  const rows = state.products.map(product => `
+    <div class="admin-row">
+      <span><strong>${escapeHtml(product.name)}</strong><small>${escapeHtml(product.category)} - ${money(product.price)} - ${product.available ? "available" : "hidden"}</small></span>
+      <button class="small-action" data-action="edit-product" data-id="${product.id}">Edit</button>
+    </div>
+  `).join("");
+  return `
+    <section class="admin-grid">
+      <div class="panel"><div class="panel-header"><div><h2>Menu management</h2><p>Add products, change prices, hide unavailable items.</p></div></div>
+        <div class="panel-body cart-list">
+          <div class="field"><label>Name</label><input class="input" data-action="product-name" value="${escapeHtml(state.productForm.name)}"></div>
+          <div class="field"><label>Category</label><input class="input" data-action="product-category" value="${escapeHtml(state.productForm.category)}"></div>
+          <div class="field-grid"><div class="field"><label>Price</label><input class="input" type="number" step="0.01" data-action="product-price" value="${escapeHtml(state.productForm.price)}"></div><div class="field"><label>Sort</label><input class="input" type="number" data-action="product-sort" value="${escapeHtml(state.productForm.sort)}"></div></div>
+          <label class="check"><input type="checkbox" data-action="product-available" ${state.productForm.available ? "checked" : ""}> Available</label>
+          <button class="primary" data-action="save-product">${state.productForm.id ? "Update product" : "Add product"}</button>
+          <button class="secondary" data-action="reset-product">Clear</button>
+        </div>
+      </div>
+      <div class="panel"><div class="panel-header"><div><h2>Products</h2><p>${state.products.length} menu items.</p></div></div><div class="panel-body"><div class="admin-list">${rows}</div></div></div>
+      <div class="panel span"><div class="panel-header"><div><h2>Audit log</h2><p>Latest operational changes.</p></div></div><div class="panel-body"><div class="admin-list">${state.audit.map(item => `<div class="admin-row"><span><strong>${escapeHtml(item.action)}</strong><small>${escapeHtml(item.userName)} - ${new Date(item.at).toLocaleString()}</small></span></div>`).join("") || `<p class="empty">No audit entries.</p>`}</div></div></div>
+    </section>
+  `;
+}
 
-  app.innerHTML = `
+function renderShell() {
+  const body = state.view === "kitchen" ? renderKitchen() : state.view === "reports" ? renderReports() : state.view === "admin" ? renderAdmin() : renderWaiter();
+  return `
     <div class="app-shell">
       <header class="topbar">
-        <div class="brand">
-          <div class="brand-mark">RO</div>
-          <div>
-            <h1>Restaurant Orders</h1>
-            <span>Waiter, kitchen, and daily cash control</span>
-          </div>
-        </div>
-        <nav class="tabs" aria-label="Main views">
-          <button class="tab ${state.view === "waiter" ? "active" : ""}" data-view="waiter">Waiter</button>
-          <button class="tab ${state.view === "kitchen" ? "active" : ""}" data-view="kitchen">Kitchen</button>
-          <button class="tab ${state.view === "reports" ? "active" : ""}" data-view="reports">Reports</button>
-        </nav>
+        <div class="brand"><div class="brand-mark">RO</div><div><h1>${escapeHtml((state.settings && state.settings.restaurantName) || "Restaurant Orders")}</h1><span>${escapeHtml(state.me.name)} - ${escapeHtml(state.me.role)}</span></div></div>
+        <nav class="tabs">${allowedViews().map(view => `<button class="tab ${state.view === view ? "active" : ""}" data-view="${view}">${view}</button>`).join("")}<button class="tab" data-action="logout">Logout</button></nav>
       </header>
       <main class="main">${body}</main>
       ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}
@@ -472,66 +466,75 @@ function render() {
   `;
 }
 
+function render() {
+  app.innerHTML = state.me ? renderShell() : renderLogin();
+}
+
 app.addEventListener("click", async event => {
   const target = event.target.closest("[data-view], [data-action]");
-  if (!target) {
-    return;
-  }
-
+  if (!target) return;
   if (target.dataset.view) {
     state.view = target.dataset.view;
-    if (state.view === "reports") {
-      await loadReport();
-    }
+    if (state.view === "reports") await loadReport();
+    if (state.view === "admin") await loadAudit();
     render();
     return;
   }
-
   const action = target.dataset.action;
-  if (action === "add-product") addToCart(target.dataset.id);
+  if (action === "login") login();
+  if (action === "logout") logout(true);
+  if (action === "add-product") addProduct(target.dataset.id);
   if (action === "cart-minus") updateCart(target.dataset.id, -1);
   if (action === "cart-plus") updateCart(target.dataset.id, 1);
-  if (action === "cart-remove") removeFromCart(target.dataset.id);
   if (action === "send-order") sendOrder();
-  if (action === "kitchen-status") setKitchenStatus(target.dataset.id, target.dataset.status);
-  if (action === "paid") markPaid(target.dataset.id);
+  if (action === "status") setStatus(target.dataset.id, target.dataset.status);
+  if (action === "paid") payOrder(target.dataset.id);
+  if (action === "cancel") cancelOrder(target.dataset.id);
+  if (action === "save-product") saveProduct();
+  if (action === "edit-product") editProduct(target.dataset.id);
+  if (action === "reset-product") { resetProductForm(); render(); }
+  if (action === "close-day") closeDay();
 });
 
 app.addEventListener("input", event => {
-  const target = event.target;
-  const action = target.dataset.action;
-  if (action === "table-input") state.table = target.value;
-  if (action === "order-notes") state.orderNotes = target.value;
-  if (action === "search") {
-    state.search = target.value;
-    render();
+  const t = event.target;
+  const action = t.dataset.action;
+  if (action === "login-username") state.login.username = t.value;
+  if (action === "login-password") state.login.password = t.value;
+  if (action === "table") state.table = t.value;
+  if (action === "order-notes") state.orderNotes = t.value;
+  if (action === "search") { state.search = t.value; render(); }
+  if (action === "cart-note") {
+    const item = state.cart.find(candidate => candidate.productId === t.dataset.id);
+    if (item) item.note = t.value;
   }
-  if (action === "cart-note") updateCartNote(target.dataset.id, target.value);
+  if (action === "pay-discount") state.payment.discount = t.value;
+  if (action === "pay-tip") state.payment.tip = t.value;
+  if (action === "product-name") state.productForm.name = t.value;
+  if (action === "product-category") state.productForm.category = t.value;
+  if (action === "product-price") state.productForm.price = t.value;
+  if (action === "product-sort") state.productForm.sort = t.value;
+  if (action === "close-cash") state.closeDay.countedCash = t.value;
+  if (action === "close-note") state.closeDay.note = t.value;
 });
 
 app.addEventListener("change", async event => {
-  const target = event.target;
-  const action = target.dataset.action;
-  if (action === "waiter-select") state.selectedWaiterId = target.value;
-  if (action === "category") {
-    state.category = target.value;
-    render();
-  }
+  const t = event.target;
+  const action = t.dataset.action;
+  if (action === "category") { state.category = t.value; render(); }
+  if (action === "pay-method") state.payment.method = t.value;
+  if (action === "product-available") state.productForm.available = t.checked;
   if (action === "report-date") {
-    state.reportDate = target.value;
+    state.reportDate = t.value;
     await loadReport();
     render();
   }
 });
 
-loadBootstrap().catch(error => {
-  app.innerHTML = `<main class="main"><div class="panel"><div class="panel-body">${escapeHtml(error.message)}</div></div></main>`;
-});
-
-window.setInterval(async () => {
-  await loadOrders(true);
-  if (state.view === "reports") {
-    await loadReport();
-  }
+bootstrap();
+setInterval(async () => {
+  if (!state.me) return;
+  await refreshOrders(true);
+  if (state.view === "reports") await loadReport();
   render();
 }, 4000);

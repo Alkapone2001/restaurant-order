@@ -4,6 +4,7 @@
   "private": true,
   "description": "Restaurant waiter and kitchen ordering app",
   "scripts": {
+    "check": "node --check server.js && node --check public/app.js",
     "start": "node server.js"
   },
   "engines": {

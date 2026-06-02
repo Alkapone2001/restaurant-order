@@ -1,16 +1,72 @@
 {
-  "waiters": [
+  "version": 2,
+  "settings": {
+    "restaurantName": "Restaurant Orders",
+    "currency": "EUR",
+    "taxRate": 0,
+    "serviceRate": 0,
+    "requireKitchenConfirm": true
+  },
+  "users": [
+    {
+      "id": "u_admin",
+      "name": "Manager",
+      "username": "admin",
+      "role": "admin",
+      "active": true,
+      "password": {
+        "salt": "67c72d8eba325fddbdb6df77c8f93955",
+        "hash": "d6f8f83914e9ca2f17b8fd6aa77708a512b455dea4bad07a780bba8f962988eb"
+      },
+      "createdAt": "2026-06-02T22:13:27.110Z"
+    },
     {
       "id": "w1",
-      "name": "Arta"
+      "name": "Arta",
+      "username": "arta",
+      "role": "waiter",
+      "active": true,
+      "password": {
+        "salt": "4ea9453fbcc439ca742581f785067149",
+        "hash": "1da00d9db43a4b72f890a5c063e4539c81a2f42fd485464f947b7df3f25e4259"
+      },
+      "createdAt": "2026-06-02T22:13:27.203Z"
     },
     {
       "id": "w2",
-      "name": "Jon"
+      "name": "Jon",
+      "username": "jon",
+      "role": "waiter",
+      "active": true,
+      "password": {
+        "salt": "107d02aa2c34c065419863c33a46eef0",
+        "hash": "9247ca1a727bb659fac31e68211fa03282357a61cc7e968c2c59c18cb2041a8b"
+      },
+      "createdAt": "2026-06-02T22:13:27.362Z"
     },
     {
       "id": "w3",
-      "name": "Mira"
+      "name": "Mira",
+      "username": "mira",
+      "role": "waiter",
+      "active": true,
+      "password": {
+        "salt": "96df29713e7ea59e186d05eee09d69b8",
+        "hash": "34ed428c17e4289b146d0a8c6fd8a1405057431369bdb74c4d6d36d4ff53a465"
+      },
+      "createdAt": "2026-06-02T22:13:27.453Z"
+    },
+    {
+      "id": "u_kitchen",
+      "name": "Kitchen",
+      "username": "kitchen",
+      "role": "kitchen",
+      "active": true,
+      "password": {
+        "salt": "a4c9536e1f10aaa23067c7f45b09bbbd",
+        "hash": "95ab4ee54989a8881337dbf710c0fbbc4aa1d63a34d09883dadc2055870444ce"
+      },
+      "createdAt": "2026-06-02T22:13:27.779Z"
     }
   ],
   "products": [
@@ -18,62 +74,93 @@
       "id": "p1",
       "name": "Margherita Pizza",
       "category": "Pizza",
-      "price": 7.5
+      "price": 7.5,
+      "available": true,
+      "sort": 10
     },
     {
       "id": "p2",
       "name": "Prosciutto Pizza",
       "category": "Pizza",
-      "price": 9.2
+      "price": 9.2,
+      "available": true,
+      "sort": 20
     },
     {
       "id": "p3",
       "name": "Chicken Caesar Salad",
       "category": "Salads",
-      "price": 6.8
+      "price": 6.8,
+      "available": true,
+      "sort": 30
     },
     {
       "id": "p4",
       "name": "Beef Burger",
       "category": "Grill",
-      "price": 8.4
+      "price": 8.4,
+      "available": true,
+      "sort": 40
     },
     {
       "id": "p5",
       "name": "Grilled Salmon",
       "category": "Main",
-      "price": 13.5
+      "price": 13.5,
+      "available": true,
+      "sort": 50
     },
     {
       "id": "p6",
       "name": "Penne Arrabbiata",
       "category": "Pasta",
-      "price": 7.9
+      "price": 7.9,
+      "available": true,
+      "sort": 60
     },
     {
       "id": "p7",
       "name": "Tiramisu",
       "category": "Dessert",
-      "price": 4.2
+      "price": 4.2,
+      "available": true,
+      "sort": 70
     },
     {
       "id": "p8",
       "name": "Sparkling Water",
       "category": "Drinks",
-      "price": 1.8
+      "price": 1.8,
+      "available": true,
+      "sort": 80
     },
     {
       "id": "p9",
       "name": "House Lemonade",
       "category": "Drinks",
-      "price": 2.6
+      "price": 2.6,
+      "available": true,
+      "sort": 90
     },
     {
       "id": "p10",
       "name": "Espresso",
       "category": "Drinks",
-      "price": 1.4
+      "price": 1.4,
+      "available": true,
+      "sort": 100
     }
   ],
-  "orders": []
+  "orders": [],
+  "cashClosures": [],
+  "audit": [
+    {
+      "id": "a_1780438407877_e1d99945",
+      "action": "login",
+      "userId": "u_admin",
+      "userName": "Manager",
+      "details": {},
+      "at": "2026-06-02T22:13:27.877Z"
+    }
+  ]
 }
