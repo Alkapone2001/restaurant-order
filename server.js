@@ -483,6 +483,33 @@ function parseProduct(payload, existing) {
   };
 }
 
+function normalizeUsername(value) {
+  return String(value || "").trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "");
+}
+
+function parseWaiter(payload, store) {
+  const name = String(payload.name || "").trim();
+  const username = normalizeUsername(payload.username || name);
+  const password = String(payload.password || "");
+  if (!name) throw new Error("Waiter name is required.");
+  if (!username) throw new Error("Waiter username is required.");
+  if (username.length < 3) throw new Error("Waiter username must be at least 3 characters.");
+  if (password.length < 6) throw new Error("Waiter password must be at least 6 characters.");
+  if (store.users.some(user => user.username.toLowerCase() === username)) {
+    throw new Error("That username is already used.");
+  }
+
+  return {
+    id: uid("u_waiter"),
+    name: name.slice(0, 100),
+    username: username.slice(0, 60),
+    role: "waiter",
+    active: true,
+    password: makePassword(password),
+    createdAt: nowIso()
+  };
+}
+
 async function handleApi(req, res, url) {
   const store = readStore();
 
@@ -634,6 +661,36 @@ async function handleApi(req, res, url) {
       const admin = requireUser(req, res, store, ["admin"]);
       if (!admin) return;
       sendJson(res, 200, store.audit.slice(0, 200));
+      return;
+    }
+
+    if (req.method === "POST" && url.pathname === "/api/users/waiters") {
+      const admin = requireUser(req, res, store, ["admin"]);
+      if (!admin) return;
+      const waiter = parseWaiter(await readBody(req), store);
+      store.users.push(waiter);
+      audit(store, admin, "waiter.create", { waiterId: waiter.id, username: waiter.username, name: waiter.name });
+      writeStore(store);
+      sendJson(res, 201, cleanUser(waiter));
+      return;
+    }
+
+    const waiterMatch = url.pathname.match(/^\/api\/users\/waiters\/([^/]+)$/);
+    if (waiterMatch && req.method === "DELETE") {
+      const admin = requireUser(req, res, store, ["admin"]);
+      if (!admin) return;
+      const waiter = store.users.find(item => item.id === waiterMatch[1] && item.role === "waiter");
+      if (!waiter) {
+        sendJson(res, 404, { error: "Waiter not found." });
+        return;
+      }
+      waiter.active = false;
+      sessions.forEach((session, token) => {
+        if (session.userId === waiter.id) sessions.delete(token);
+      });
+      audit(store, admin, "waiter.remove", { waiterId: waiter.id, username: waiter.username, name: waiter.name });
+      writeStore(store);
+      sendJson(res, 200, cleanUser(waiter));
       return;
     }
 

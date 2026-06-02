@@ -17,6 +17,7 @@ const state = {
   reportDate: new Date().toISOString().slice(0, 10),
   payment: { method: "cash", discount: 0, amountReceived: "", tip: 0, note: "" },
   productForm: { id: "", name: "", category: "", price: "", available: true, sort: 999 },
+  waiterForm: { name: "", username: "", password: "" },
   closeDay: { countedCash: "", note: "" },
   toast: ""
 };
@@ -258,6 +259,34 @@ function resetProductForm() {
   state.productForm = { id: "", name: "", category: "", price: "", available: true, sort: 999 };
 }
 
+async function saveWaiter() {
+  try {
+    const waiter = await api("/api/users/waiters", {
+      method: "POST",
+      body: JSON.stringify(state.waiterForm)
+    });
+    state.users = state.users.concat(waiter);
+    state.waiterForm = { name: "", username: "", password: "" };
+    await loadAudit();
+    toast(`Waiter ${waiter.name} added`);
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+async function removeWaiter(id) {
+  const waiter = state.users.find(user => user.id === id);
+  if (!waiter || !confirm(`Remove waiter ${waiter.name}?`)) return;
+  try {
+    const updated = await api(`/api/users/waiters/${id}`, { method: "DELETE" });
+    state.users = state.users.map(user => user.id === updated.id ? updated : user);
+    await loadAudit();
+    toast(`Waiter ${updated.name} removed`);
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
 async function closeDay() {
   try {
     const closure = await api("/api/reports/close-day", {
@@ -434,6 +463,12 @@ function renderAdmin() {
       <button class="small-action" data-action="edit-product" data-id="${product.id}">Edit</button>
     </div>
   `).join("");
+  const waiterRows = state.users.filter(user => user.role === "waiter").map(waiter => `
+    <div class="admin-row ${waiter.active ? "" : "muted-row"}">
+      <span><strong>${escapeHtml(waiter.name)}</strong><small>${escapeHtml(waiter.username)} - ${waiter.active ? "active" : "removed"}</small></span>
+      <button class="small-action danger" data-action="remove-waiter" data-id="${waiter.id}" ${waiter.active ? "" : "disabled"}>Remove</button>
+    </div>
+  `).join("");
   return `
     <section class="admin-grid">
       <div class="panel"><div class="panel-header"><div><h2>Menu management</h2><p>Add products, change prices, hide unavailable items.</p></div></div>
@@ -447,6 +482,15 @@ function renderAdmin() {
         </div>
       </div>
       <div class="panel"><div class="panel-header"><div><h2>Products</h2><p>${state.products.length} menu items.</p></div></div><div class="panel-body"><div class="admin-list">${rows}</div></div></div>
+      <div class="panel"><div class="panel-header"><div><h2>Waiters</h2><p>Add or remove waiter accounts.</p></div></div>
+        <div class="panel-body cart-list">
+          <div class="field"><label>Name</label><input class="input" data-action="waiter-name" value="${escapeHtml(state.waiterForm.name)}" placeholder="Waiter name"></div>
+          <div class="field"><label>Username</label><input class="input" data-action="waiter-username" value="${escapeHtml(state.waiterForm.username)}" placeholder="login username"></div>
+          <div class="field"><label>Password</label><input class="input" type="password" data-action="waiter-password" value="${escapeHtml(state.waiterForm.password)}" placeholder="minimum 6 characters"></div>
+          <button class="primary" data-action="save-waiter">Add waiter</button>
+        </div>
+      </div>
+      <div class="panel"><div class="panel-header"><div><h2>Waiter accounts</h2><p>${state.users.filter(user => user.role === "waiter" && user.active).length} active.</p></div></div><div class="panel-body"><div class="admin-list">${waiterRows || `<p class="empty">No waiters yet.</p>`}</div></div></div>
       <div class="panel span"><div class="panel-header"><div><h2>Audit log</h2><p>Latest operational changes.</p></div></div><div class="panel-body"><div class="admin-list">${state.audit.map(item => `<div class="admin-row"><span><strong>${escapeHtml(item.action)}</strong><small>${escapeHtml(item.userName)} - ${new Date(item.at).toLocaleString()}</small></span></div>`).join("") || `<p class="empty">No audit entries.</p>`}</div></div></div>
     </section>
   `;
@@ -493,6 +537,8 @@ app.addEventListener("click", async event => {
   if (action === "save-product") saveProduct();
   if (action === "edit-product") editProduct(target.dataset.id);
   if (action === "reset-product") { resetProductForm(); render(); }
+  if (action === "save-waiter") saveWaiter();
+  if (action === "remove-waiter") removeWaiter(target.dataset.id);
   if (action === "close-day") closeDay();
 });
 
@@ -514,6 +560,9 @@ app.addEventListener("input", event => {
   if (action === "product-category") state.productForm.category = t.value;
   if (action === "product-price") state.productForm.price = t.value;
   if (action === "product-sort") state.productForm.sort = t.value;
+  if (action === "waiter-name") state.waiterForm.name = t.value;
+  if (action === "waiter-username") state.waiterForm.username = t.value;
+  if (action === "waiter-password") state.waiterForm.password = t.value;
   if (action === "close-cash") state.closeDay.countedCash = t.value;
   if (action === "close-note") state.closeDay.note = t.value;
 });

@@ -607,6 +607,10 @@ button:disabled {
   color: var(--muted);
 }
 
+.admin-row.muted-row {
+  opacity: 0.62;
+}
+
 .check {
   display: flex;
   align-items: center;
