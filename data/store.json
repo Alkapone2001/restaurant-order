@@ -153,6 +153,148 @@
   ],
   "orders": [
     {
+      "id": "o_1780663609283_8c5d7788",
+      "number": 3,
+      "table": "2",
+      "waiterId": "u_admin",
+      "status": "done",
+      "paymentStatus": "paid",
+      "items": [
+        {
+          "productId": "p1",
+          "name": "Margherita Pizza",
+          "category": "Pizza",
+          "price": 7.5,
+          "quantity": 2,
+          "note": ""
+        }
+      ],
+      "notes": "",
+      "discount": 0,
+      "tax": 0,
+      "service": 0,
+      "payment": {
+        "method": "cash",
+        "amountReceived": 15,
+        "tip": 0,
+        "note": "",
+        "closedBy": "u_admin"
+      },
+      "createdAt": "2026-06-05T12:46:49.283Z",
+      "updatedAt": "2026-06-05T12:47:03.600Z",
+      "paidAt": "2026-06-05T12:47:03.600Z",
+      "canceledAt": null,
+      "canceledReason": "",
+      "history": [
+        {
+          "status": "sent",
+          "label": "Sent to kitchen",
+          "userId": "u_admin",
+          "userName": "Manager",
+          "at": "2026-06-05T12:46:49.283Z"
+        },
+        {
+          "status": "received",
+          "label": "received",
+          "userId": "u_admin",
+          "userName": "Manager",
+          "at": "2026-06-05T12:46:54.779Z"
+        },
+        {
+          "status": "preparing",
+          "label": "preparing",
+          "userId": "u_admin",
+          "userName": "Manager",
+          "at": "2026-06-05T12:46:56.245Z"
+        },
+        {
+          "status": "done",
+          "label": "done",
+          "userId": "u_admin",
+          "userName": "Manager",
+          "at": "2026-06-05T12:46:57.022Z"
+        },
+        {
+          "status": "paid",
+          "label": "Paid and closed",
+          "userId": "u_admin",
+          "userName": "Manager",
+          "at": "2026-06-05T12:47:03.600Z"
+        }
+      ]
+    },
+    {
+      "id": "o_1780663104332_8d13571c",
+      "number": 2,
+      "table": "1",
+      "waiterId": "w2",
+      "status": "done",
+      "paymentStatus": "paid",
+      "items": [
+        {
+          "productId": "p2",
+          "name": "Prosciutto Pizza",
+          "category": "Pizza",
+          "price": 9.2,
+          "quantity": 4,
+          "note": "1 jhghgjh"
+        }
+      ],
+      "notes": "",
+      "discount": 0,
+      "tax": 0,
+      "service": 0,
+      "payment": {
+        "method": "cash",
+        "amountReceived": 36.8,
+        "tip": 0,
+        "note": "",
+        "closedBy": "w2"
+      },
+      "createdAt": "2026-06-05T12:38:24.332Z",
+      "updatedAt": "2026-06-05T12:39:17.261Z",
+      "paidAt": "2026-06-05T12:39:17.261Z",
+      "canceledAt": null,
+      "canceledReason": "",
+      "history": [
+        {
+          "status": "sent",
+          "label": "Sent to kitchen",
+          "userId": "w2",
+          "userName": "Jon",
+          "at": "2026-06-05T12:38:24.332Z"
+        },
+        {
+          "status": "received",
+          "label": "received",
+          "userId": "u_kitchen",
+          "userName": "Kitchen",
+          "at": "2026-06-05T12:38:43.589Z"
+        },
+        {
+          "status": "preparing",
+          "label": "preparing",
+          "userId": "u_kitchen",
+          "userName": "Kitchen",
+          "at": "2026-06-05T12:38:54.656Z"
+        },
+        {
+          "status": "done",
+          "label": "done",
+          "userId": "u_kitchen",
+          "userName": "Kitchen",
+          "at": "2026-06-05T12:39:04.936Z"
+        },
+        {
+          "status": "paid",
+          "label": "Paid and closed",
+          "userId": "w2",
+          "userName": "Jon",
+          "at": "2026-06-05T12:39:17.261Z"
+        }
+      ]
+    },
+    {
       "id": "o_1780438765145_71d0371c",
       "number": 1,
       "table": "T1",
@@ -232,8 +374,331 @@
       ]
     }
   ],
-  "cashClosures": [],
+  "cashClosures": [
+    {
+      "id": "close_1780663226932_53416efa",
+      "date": "2026-06-05",
+      "expectedCash": 36.8,
+      "countedCash": 36,
+      "note": "",
+      "report": {
+        "date": "2026-06-05",
+        "orderCount": 1,
+        "voidCount": 0,
+        "total": 36.8,
+        "subtotal": 36.8,
+        "discounts": 0,
+        "tips": 0,
+        "byWaiter": [
+          {
+            "waiterId": "w1",
+            "waiterName": "Arta",
+            "orders": 0,
+            "total": 0,
+            "tips": 0
+          },
+          {
+            "waiterId": "w2",
+            "waiterName": "Jon",
+            "orders": 1,
+            "total": 36.8,
+            "tips": 0
+          },
+          {
+            "waiterId": "w3",
+            "waiterName": "Mira",
+            "orders": 0,
+            "total": 0,
+            "tips": 0
+          }
+        ],
+        "byMethod": [
+          {
+            "method": "cash",
+            "orders": 1,
+            "total": 36.8
+          },
+          {
+            "method": "card",
+            "orders": 0,
+            "total": 0
+          },
+          {
+            "method": "mixed",
+            "orders": 0,
+            "total": 0
+          },
+          {
+            "method": "other",
+            "orders": 0,
+            "total": 0
+          }
+        ],
+        "orders": [
+          {
+            "id": "o_1780663104332_8d13571c",
+            "number": 2,
+            "table": "1",
+            "waiterId": "w2",
+            "status": "done",
+            "paymentStatus": "paid",
+            "items": [
+              {
+                "productId": "p2",
+                "name": "Prosciutto Pizza",
+                "category": "Pizza",
+                "price": 9.2,
+                "quantity": 4,
+                "note": "1 jhghgjh"
+              }
+            ],
+            "notes": "",
+            "discount": 0,
+            "tax": 0,
+            "service": 0,
+            "payment": {
+              "method": "cash",
+              "amountReceived": 36.8,
+              "tip": 0,
+              "note": "",
+              "closedBy": "w2"
+            },
+            "createdAt": "2026-06-05T12:38:24.332Z",
+            "updatedAt": "2026-06-05T12:39:17.261Z",
+            "paidAt": "2026-06-05T12:39:17.261Z",
+            "canceledAt": null,
+            "canceledReason": "",
+            "history": [
+              {
+                "status": "sent",
+                "label": "Sent to kitchen",
+                "userId": "w2",
+                "userName": "Jon",
+                "at": "2026-06-05T12:38:24.332Z"
+              },
+              {
+                "status": "received",
+                "label": "received",
+                "userId": "u_kitchen",
+                "userName": "Kitchen",
+                "at": "2026-06-05T12:38:43.589Z"
+              },
+              {
+                "status": "preparing",
+                "label": "preparing",
+                "userId": "u_kitchen",
+                "userName": "Kitchen",
+                "at": "2026-06-05T12:38:54.656Z"
+              },
+              {
+                "status": "done",
+                "label": "done",
+                "userId": "u_kitchen",
+                "userName": "Kitchen",
+                "at": "2026-06-05T12:39:04.936Z"
+              },
+              {
+                "status": "paid",
+                "label": "Paid and closed",
+                "userId": "w2",
+                "userName": "Jon",
+                "at": "2026-06-05T12:39:17.261Z"
+              }
+            ],
+            "waiterName": "Jon",
+            "subtotal": 36.8,
+            "total": 36.8
+          }
+        ],
+        "voidOrders": []
+      },
+      "closedBy": "u_admin",
+      "closedByName": "Manager",
+      "closedAt": "2026-06-05T12:40:26.932Z"
+    }
+  ],
   "audit": [
+    {
+      "id": "a_1780663623600_d9fdec11",
+      "action": "order.paid",
+      "userId": "u_admin",
+      "userName": "Manager",
+      "details": {
+        "orderId": "o_1780663609283_8c5d7788",
+        "total": 15,
+        "method": "cash"
+      },
+      "at": "2026-06-05T12:47:03.600Z"
+    },
+    {
+      "id": "a_1780663617022_54af347c",
+      "action": "order.status",
+      "userId": "u_admin",
+      "userName": "Manager",
+      "details": {
+        "orderId": "o_1780663609283_8c5d7788",
+        "status": "done"
+      },
+      "at": "2026-06-05T12:46:57.022Z"
+    },
+    {
+      "id": "a_1780663616245_bf42ab40",
+      "action": "order.status",
+      "userId": "u_admin",
+      "userName": "Manager",
+      "details": {
+        "orderId": "o_1780663609283_8c5d7788",
+        "status": "preparing"
+      },
+      "at": "2026-06-05T12:46:56.245Z"
+    },
+    {
+      "id": "a_1780663614779_f5f12953",
+      "action": "order.status",
+      "userId": "u_admin",
+      "userName": "Manager",
+      "details": {
+        "orderId": "o_1780663609283_8c5d7788",
+        "status": "received"
+      },
+      "at": "2026-06-05T12:46:54.779Z"
+    },
+    {
+      "id": "a_1780663609283_fb83ef3f",
+      "action": "order.create",
+      "userId": "u_admin",
+      "userName": "Manager",
+      "details": {
+        "orderId": "o_1780663609283_8c5d7788",
+        "number": 3,
+        "total": 15
+      },
+      "at": "2026-06-05T12:46:49.283Z"
+    },
+    {
+      "id": "a_1780663348786_9a9b5aa3",
+      "action": "login",
+      "userId": "u_admin",
+      "userName": "Manager",
+      "details": {},
+      "at": "2026-06-05T12:42:28.786Z"
+    },
+    {
+      "id": "a_1780663226932_6fce7b6b",
+      "action": "report.close-day",
+      "userId": "u_admin",
+      "userName": "Manager",
+      "details": {
+        "date": "2026-06-05",
+        "total": 36.8
+      },
+      "at": "2026-06-05T12:40:26.932Z"
+    },
+    {
+      "id": "a_1780663189727_f3e519a5",
+      "action": "login",
+      "userId": "u_admin",
+      "userName": "Manager",
+      "details": {},
+      "at": "2026-06-05T12:39:49.727Z"
+    },
+    {
+      "id": "a_1780663157261_58433512",
+      "action": "order.paid",
+      "userId": "w2",
+      "userName": "Jon",
+      "details": {
+        "orderId": "o_1780663104332_8d13571c",
+        "total": 36.8,
+        "method": "cash"
+      },
+      "at": "2026-06-05T12:39:17.261Z"
+    },
+    {
+      "id": "a_1780663144936_53761855",
+      "action": "order.status",
+      "userId": "u_kitchen",
+      "userName": "Kitchen",
+      "details": {
+        "orderId": "o_1780663104332_8d13571c",
+        "status": "done"
+      },
+      "at": "2026-06-05T12:39:04.936Z"
+    },
+    {
+      "id": "a_1780663134656_348fd46d",
+      "action": "order.status",
+      "userId": "u_kitchen",
+      "userName": "Kitchen",
+      "details": {
+        "orderId": "o_1780663104332_8d13571c",
+        "status": "preparing"
+      },
+      "at": "2026-06-05T12:38:54.656Z"
+    },
+    {
+      "id": "a_1780663123589_9cb6f6b9",
+      "action": "order.status",
+      "userId": "u_kitchen",
+      "userName": "Kitchen",
+      "details": {
+        "orderId": "o_1780663104332_8d13571c",
+        "status": "received"
+      },
+      "at": "2026-06-05T12:38:43.589Z"
+    },
+    {
+      "id": "a_1780663104333_24eacb69",
+      "action": "order.create",
+      "userId": "w2",
+      "userName": "Jon",
+      "details": {
+        "orderId": "o_1780663104332_8d13571c",
+        "number": 2,
+        "total": 36.8
+      },
+      "at": "2026-06-05T12:38:24.333Z"
+    },
+    {
+      "id": "a_1780663014877_c564f970",
+      "action": "login",
+      "userId": "u_kitchen",
+      "userName": "Kitchen",
+      "details": {},
+      "at": "2026-06-05T12:36:54.877Z"
+    },
+    {
+      "id": "a_1780662958473_80038b48",
+      "action": "login",
+      "userId": "w2",
+      "userName": "Jon",
+      "details": {},
+      "at": "2026-06-05T12:35:58.474Z"
+    },
+    {
+      "id": "a_1780662923363_506a9a94",
+      "action": "login",
+      "userId": "u_admin",
+      "userName": "Manager",
+      "details": {},
+      "at": "2026-06-05T12:35:23.363Z"
+    },
+    {
+      "id": "a_1780662770055_d0bd4e99",
+      "action": "login",
+      "userId": "u_admin",
+      "userName": "Manager",
+      "details": {},
+      "at": "2026-06-05T12:32:50.055Z"
+    },
+    {
+      "id": "a_1780606909732_91a5c54b",
+      "action": "login",
+      "userId": "u_admin",
+      "userName": "Manager",
+      "details": {},
+      "at": "2026-06-04T21:01:49.732Z"
+    },
     {
       "id": "a_1780439042334_a1a94065",
       "action": "login",

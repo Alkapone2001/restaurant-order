@@ -603,6 +603,13 @@ button:disabled {
   gap: 3px;
 }
 
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .admin-row small {
   color: var(--muted);
 }
