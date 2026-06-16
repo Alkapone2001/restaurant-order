@@ -86,6 +86,11 @@ POSTGRES_URL_NON_POOLING=postgres://user:password@host:5432/database
 POSTGRES_PRISMA_URL=postgres://user:password@host:5432/database
 PGSSL=true
 PORT=3000
+VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_KEY=
+VAPID_SUBJECT=mailto:admin@example.com
 ```
 
 The app accepts `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `POSTGRES_URL`, `POSTGRES_PRISMA_URL`, `POSTGRES_URL_NON_POOLING`, or `POSTGRES_URL_NO_SSL`. Prefer the pooled `DATABASE_URL`/`POSTGRES_URL` on Vercel. Set `PGSSL=false` only for local Postgres instances that do not use SSL.
+
+`VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` are required for background push notifications. Set them in Vercel environment variables, not in committed files.

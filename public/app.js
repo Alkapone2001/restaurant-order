@@ -121,9 +121,42 @@ async function enableAlerts() {
 			await Notification.requestPermission();
 		} catch (error) {}
 	}
+	await enablePushNotifications();
 	state.audioReady = true;
 	localStorage.setItem("restaurant_alerts_enabled", "true");
 	render();
+}
+
+function urlBase64ToUint8Array(base64String) {
+	const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+	const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+	const rawData = window.atob(base64);
+	const outputArray = new Uint8Array(rawData.length);
+	for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+	return outputArray;
+}
+
+async function enablePushNotifications() {
+	if (!("serviceWorker" in navigator) || !("PushManager" in window) || !state.token) return false;
+	if ("Notification" in window && Notification.permission !== "granted") return false;
+	try {
+		const keyData = await api("/api/push/public-key");
+		if (!keyData.publicKey) return false;
+		const registration = await navigator.serviceWorker.register("/sw.js");
+		const existing = await registration.pushManager.getSubscription();
+		const subscription = existing || await registration.pushManager.subscribe({
+			userVisibleOnly: true,
+			applicationServerKey: urlBase64ToUint8Array(keyData.publicKey)
+		});
+		await api("/api/push/subscribe", {
+			method: "POST",
+			body: JSON.stringify(subscription)
+		});
+		return true;
+	} catch (error) {
+		console.warn("Push notification setup failed", error);
+		return false;
+	}
 }
 
 function notify(title, body, kind) {
@@ -271,6 +304,7 @@ async function login() {
 		state.me = data.user;
 		state.view = defaultViewForRole(data.user.role);
 		await bootstrap();
+		if (state.audioReady) enablePushNotifications();
 		toast(`Logged in as ${data.user.name}`);
 	} catch (error) {
 		toast(error.message);
