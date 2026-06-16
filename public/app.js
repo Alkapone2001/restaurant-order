@@ -45,6 +45,7 @@ const statusLabels = {
 	canceled: "Canceled",
 };
 const statusRank = { sent: 1, received: 2, preparing: 3, done: 4 };
+const stationLabels = { bar: "Bartender", pizza: "Pizzaman", kitchen: "Kitchen" };
 
 function money(value) {
 	return new Intl.NumberFormat("en-US", {
@@ -91,8 +92,10 @@ async function api(path, options) {
 function allowedViews() {
 	if (!state.me) return [];
 	if (state.me.role === "admin")
-		return ["waiter", "kitchen", "reports", "staff", "admin"];
+		return ["waiter", "bar", "pizza", "kitchen", "reports", "staff", "admin"];
 	if (state.me.role === "kitchen") return ["kitchen"];
+	if (state.me.role === "bartender") return ["bar"];
+	if (state.me.role === "pizzaman") return ["pizza"];
 	return ["waiter"];
 }
 
@@ -236,14 +239,17 @@ async function sendOrder() {
 	}
 }
 
-async function setStatus(orderId, status) {
+async function setStatus(orderId, status, station) {
 	try {
-		const order = await api(`/api/orders/${orderId}/status`, {
+		const path = station
+			? `/api/orders/${orderId}/stations/${station}/status`
+			: `/api/orders/${orderId}/status`;
+		const order = await api(path, {
 			method: "PATCH",
 			body: JSON.stringify({ status }),
 		});
 		replaceOrder(order);
-		toast(`Order #${order.number}: ${statusLabels[status]}`);
+		toast(`Order #${order.number}: ${station ? `${stationLabels[station]} ` : ""}${statusLabels[status]}`);
 	} catch (error) {
 		toast(error.message);
 	}
@@ -430,16 +436,25 @@ function closedOrders() {
 
 function orderCard(order, context) {
 	const status = order.paymentStatus === "paid" ? "paid" : order.status;
-	const items = order.items
+	const station = context && context.indexOf("station:") === 0 ? context.split(":")[1] : "";
+	const displayItems = station
+		? order.items.filter((item) => item.station === station)
+		: order.items;
+	const items = displayItems
 		.map(
 			(item) => `
     <li>
-      <span><strong>${item.quantity}x ${escapeHtml(item.name)}</strong>${item.note ? `<small>${escapeHtml(item.note)}</small>` : ""}</span>
+      <span><strong>${item.quantity}x ${escapeHtml(item.name)}</strong><small>${escapeHtml(stationLabels[item.station] || item.station || "")}${item.note ? ` - ${escapeHtml(item.note)}` : ""}</small></span>
       <strong>${money(item.price * item.quantity)}</strong>
     </li>
   `,
 		)
 		.join("");
+	const stationSummary = order.stationStatuses
+		? Object.keys(order.stationStatuses)
+				.map((key) => `<span class="status ${order.stationStatuses[key].status}">${stationLabels[key]}: ${statusLabels[order.stationStatuses[key].status]}</span>`)
+				.join("")
+		: "";
 
 	return `
     <article class="order-card ${order.paymentStatus !== "open" ? "closed" : ""}">
@@ -451,7 +466,7 @@ function orderCard(order, context) {
         <span class="status ${status}">${statusLabels[status] || status}</span>
       </div>
       <div class="order-card-body">
-        ${order.paymentStatus === "open" ? `<div class="status-flow">${["sent", "received", "preparing", "done"].map((step) => `<span class="flow-step ${statusRank[order.status] >= statusRank[step] ? "active" : ""}"></span>`).join("")}</div>` : ""}
+        ${order.paymentStatus === "open" ? `<div class="station-summary">${stationSummary}</div>` : ""}
         <ul class="line-items">${items}</ul>
         ${order.notes ? `<p><strong>Note:</strong> ${escapeHtml(order.notes)}</p>` : ""}
         ${order.discount ? `<div class="line"><span>Discount</span><strong>-${money(order.discount)}</strong></div>` : ""}
@@ -466,12 +481,14 @@ function orderCard(order, context) {
 
 function orderActions(order, context) {
 	if (order.paymentStatus !== "open") return "";
-	if (context === "kitchen") {
+	if (context && context.indexOf("station:") === 0) {
+		const station = context.split(":")[1];
+		const stationStatus = order.stationStatuses && order.stationStatuses[station] ? order.stationStatuses[station].status : "";
 		return `
       <div class="order-actions">
-        <button class="small-action" data-action="status" data-id="${order.id}" data-status="received" ${order.status !== "sent" ? "disabled" : ""}>Confirm</button>
-        <button class="small-action" data-action="status" data-id="${order.id}" data-status="preparing" ${order.status !== "received" ? "disabled" : ""}>Prepare</button>
-        <button class="small-action ready" data-action="status" data-id="${order.id}" data-status="done" ${["received", "preparing"].indexOf(order.status) === -1 ? "disabled" : ""}>Done</button>
+        <button class="small-action" data-action="status" data-id="${order.id}" data-station="${station}" data-status="received" ${stationStatus !== "sent" ? "disabled" : ""}>Confirm</button>
+        <button class="small-action" data-action="status" data-id="${order.id}" data-station="${station}" data-status="preparing" ${stationStatus !== "received" ? "disabled" : ""}>Prepare</button>
+        <button class="small-action ready" data-action="status" data-id="${order.id}" data-station="${station}" data-status="done" ${["received", "preparing"].indexOf(stationStatus) === -1 ? "disabled" : ""}>Done</button>
       </div>
     `;
 	}
@@ -548,7 +565,7 @@ function renderWaiter() {
       <aside class="panel"><div class="panel-header"><div><h2>Ticket</h2><p>${state.cart.length} item${state.cart.length === 1 ? "" : "s"}</p></div></div>
         <div class="panel-body"><div class="cart-list">${cart || `<p class="empty">Tap products to add them.</p>`}</div><div class="cart-footer"><div class="total-row"><span>Total</span><span>${money(cartTotal())}</span></div><button class="primary" data-action="send-order" ${state.cart.length ? "" : "disabled"}>Send to kitchen</button></div></div>
       </aside>
-      <section class="panel span"><div class="panel-header"><div><h2>My active orders</h2><p>Close paid orders only after the kitchen marks them done.</p></div></div><div class="panel-body"><div class="order-list">${
+      <section class="panel span"><div class="panel-header"><div><h2>My active orders</h2><p>Close paid orders only after every required station marks its part done.</p></div></div><div class="panel-body"><div class="order-list">${
 				activeOrders()
 					.map((order) => orderCard(order, "waiter"))
 					.join("") || `<p class="empty">No active orders.</p>`
@@ -557,7 +574,7 @@ function renderWaiter() {
   `;
 }
 
-function renderKitchen() {
+function renderStation(station) {
 	const columns = [
 		{ title: "New", statuses: ["sent"] },
 		{ title: "Cooking", statuses: ["received", "preparing"] },
@@ -566,9 +583,9 @@ function renderKitchen() {
 	return `<section class="kitchen-grid">${columns
 		.map((column) => {
 			const orders = activeOrders().filter(
-				(order) => column.statuses.indexOf(order.status) > -1,
+				(order) => order.stationStatuses && order.stationStatuses[station] && column.statuses.indexOf(order.stationStatuses[station].status) > -1,
 			);
-			return `<div class="column"><h2>${column.title}</h2><div class="order-list">${orders.map((order) => orderCard(order, "kitchen")).join("") || `<p class="empty">Nothing here.</p>`}</div></div>`;
+			return `<div class="column"><h2>${stationLabels[station]} - ${column.title}</h2><div class="order-list">${orders.map((order) => orderCard(order, `station:${station}`)).join("") || `<p class="empty">Nothing here.</p>`}</div></div>`;
 		})
 		.join("")}</section>`;
 }
@@ -676,7 +693,11 @@ function renderAdmin() {
 function renderShell() {
 	const body =
 		state.view === "kitchen"
-			? renderKitchen()
+			? renderStation("kitchen")
+			: state.view === "bar"
+				? renderStation("bar")
+				: state.view === "pizza"
+					? renderStation("pizza")
 			: state.view === "reports"
 				? renderReports()
 				: state.view === "staff"
@@ -686,6 +707,8 @@ function renderShell() {
 						: renderWaiter();
 	const labels = {
 		waiter: "Waiter",
+		bar: "Bartender",
+		pizza: "Pizzaman",
 		kitchen: "Kitchen",
 		reports: "Reports",
 		staff: "Staff",
@@ -731,7 +754,7 @@ app.addEventListener("click", async (event) => {
 	if (action === "cart-minus") updateCart(target.dataset.id, -1);
 	if (action === "cart-plus") updateCart(target.dataset.id, 1);
 	if (action === "send-order") sendOrder();
-	if (action === "status") setStatus(target.dataset.id, target.dataset.status);
+	if (action === "status") setStatus(target.dataset.id, target.dataset.status, target.dataset.station);
 	if (action === "paid") payOrder(target.dataset.id);
 	if (action === "cancel") cancelOrder(target.dataset.id);
 	if (action === "save-product") saveProduct();
