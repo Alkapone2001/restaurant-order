@@ -33,6 +33,9 @@ const state = {
 	waiterForm: { id: "", name: "", username: "", password: "", active: true },
 	closeDay: { countedCash: "", note: "" },
 	toast: "",
+	orderSnapshot: {},
+	audioReady: false,
+	audioContext: null,
 };
 
 const app = document.getElementById("app");
@@ -71,6 +74,92 @@ function toast(message) {
 		state.toast = "";
 		render();
 	}, 3000);
+}
+
+function ensureAudio() {
+	const AudioContext = window.AudioContext || window.webkitAudioContext;
+	if (!AudioContext) return null;
+	if (!state.audioContext) state.audioContext = new AudioContext();
+	if (state.audioContext.state === "suspended") state.audioContext.resume();
+	state.audioReady = true;
+	return state.audioContext;
+}
+
+function playTone(kind) {
+	const audio = ensureAudio();
+	if (!audio || audio.state === "suspended") return;
+	const tones = kind === "ready" ? [740, 980, 1220] : [520, 660];
+	tones.forEach((frequency, index) => {
+		const oscillator = audio.createOscillator();
+		const gain = audio.createGain();
+		const start = audio.currentTime + index * 0.13;
+		oscillator.type = "sine";
+		oscillator.frequency.value = frequency;
+		gain.gain.setValueAtTime(0.0001, start);
+		gain.gain.exponentialRampToValueAtTime(0.18, start + 0.015);
+		gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.11);
+		oscillator.connect(gain);
+		gain.connect(audio.destination);
+		oscillator.start(start);
+		oscillator.stop(start + 0.12);
+	});
+}
+
+function stationForCurrentView() {
+	if (!state.me) return "";
+	if (state.me.role === "bartender") return "bar";
+	if (state.me.role === "pizzaman") return "pizza";
+	if (state.me.role === "kitchen") return "kitchen";
+	if (["bar", "pizza", "kitchen"].indexOf(state.view) > -1) return state.view;
+	return "";
+}
+
+function snapshotOrder(order) {
+	const stationStatuses = {};
+	Object.keys(order.stationStatuses || {}).forEach((station) => {
+		stationStatuses[station] = order.stationStatuses[station].status;
+	});
+	return {
+		status: order.status,
+		paymentStatus: order.paymentStatus,
+		stationStatuses,
+	};
+}
+
+function primeOrderSnapshot(orders) {
+	state.orderSnapshot = {};
+	orders.forEach((order) => {
+		state.orderSnapshot[order.id] = snapshotOrder(order);
+	});
+}
+
+function detectOrderNotifications(nextOrders) {
+	if (!state.me) return;
+	const previous = state.orderSnapshot || {};
+	const station = stationForCurrentView();
+	let newStationOrder = false;
+	let waiterReadyOrder = false;
+
+	nextOrders.forEach((order) => {
+		const before = previous[order.id];
+		if (station && order.stationStatuses && order.stationStatuses[station]) {
+			const beforeStation = before && before.stationStatuses ? before.stationStatuses[station] : "";
+			if (!beforeStation && order.paymentStatus === "open") newStationOrder = true;
+		}
+		if (state.me.role === "waiter" && before && before.status !== "done" && order.status === "done" && order.paymentStatus === "open") {
+			waiterReadyOrder = true;
+		}
+	});
+
+	if (newStationOrder) {
+		playTone("new");
+		toast("New order received");
+	}
+	if (waiterReadyOrder) {
+		playTone("ready");
+		toast("Order ready for pickup");
+	}
+	primeOrderSnapshot(nextOrders);
 }
 
 async function api(path, options) {
@@ -125,6 +214,7 @@ async function bootstrap() {
 			state.view = allowedViews()[0];
 		if (state.view === "reports") await loadReport();
 		if (state.view === "admin" || state.view === "staff") await loadAudit();
+		primeOrderSnapshot(state.orders);
 		render();
 	} catch (error) {
 		toast(error.message);
@@ -140,6 +230,7 @@ async function login() {
 		});
 		state.token = data.token;
 		localStorage.setItem("restaurant_token", state.token);
+		ensureAudio();
 		state.me = data.user;
 		state.view = defaultViewForRole(data.user.role);
 		await bootstrap();
@@ -159,13 +250,17 @@ async function logout(callApi = true) {
 	state.token = "";
 	state.me = null;
 	state.orders = [];
+	state.orderSnapshot = {};
 	render();
 }
 
 async function refreshOrders(silent) {
 	if (!state.token) return;
 	try {
-		state.orders = await api("/api/orders");
+		const orders = await api("/api/orders");
+		if (silent) detectOrderNotifications(orders);
+		else primeOrderSnapshot(orders);
+		state.orders = orders;
 		if (!silent) render();
 	} catch (error) {
 		if (!silent) toast(error.message);
@@ -304,6 +399,7 @@ function replaceOrder(order) {
 	state.orders = state.orders.map((item) =>
 		item.id === order.id ? order : item,
 	);
+	state.orderSnapshot[order.id] = snapshotOrder(order);
 	render();
 }
 
@@ -735,7 +831,7 @@ function renderShell() {
 					)
 					.join(
 						"",
-					)}<button class="tab" data-action="logout">Logout</button></nav>
+					)}<button class="tab" data-action="enable-sound">${state.audioReady ? "Sound on" : "Sound"}</button><button class="tab" data-action="logout">Logout</button></nav>
       </header>
       <main class="main">${body}</main>
       ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}
@@ -758,6 +854,12 @@ app.addEventListener("click", async (event) => {
 		return;
 	}
 	const action = target.dataset.action;
+	if (action === "enable-sound") {
+		ensureAudio();
+		playTone("new");
+		toast("Sound enabled");
+		return;
+	}
 	if (action === "login") login();
 	if (action === "logout") logout(true);
 	if (action === "add-product") addProduct(target.dataset.id);
