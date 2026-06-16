@@ -80,8 +80,9 @@ Change these immediately before real use.
 
 ```bash
 DATABASE_URL=postgres://user:password@host:5432/database
+POSTGRES_URL=postgres://user:password@host:5432/database
 PGSSL=true
 PORT=3000
 ```
 
-Set `PGSSL=false` only for local Postgres instances that do not use SSL.
+The app accepts `DATABASE_URL`, `POSTGRES_URL`, `POSTGRES_PRISMA_URL`, or `POSTGRES_URL_NON_POOLING`. Set `PGSSL=false` only for local Postgres instances that do not use SSL.

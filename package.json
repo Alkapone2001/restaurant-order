@@ -4,7 +4,7 @@
   "private": true,
   "description": "Restaurant waiter and kitchen ordering app",
   "scripts": {
-    "check": "node --check server.js && node --check public/app.js",
+    "check": "node --check server.js && node --check public/app.js && node --check lib/api.js && node --check lib/db.js && node --check lib/repository.js && node --check lib/config.js",
     "migrate:json": "node scripts/migrate-json-to-postgres.js",
     "start": "node server.js"
   },

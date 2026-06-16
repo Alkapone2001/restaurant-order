@@ -8,6 +8,10 @@ function iso(value) {
   return value || new Date().toISOString();
 }
 
+function json(value, fallback) {
+  return JSON.stringify(value === undefined ? fallback : value);
+}
+
 async function main() {
   if (!process.env.DATABASE_URL) {
     throw new Error("DATABASE_URL is required before running the migration.");
@@ -22,17 +26,28 @@ async function main() {
   if (store.settings) {
     await rawQuery(
       "INSERT INTO settings (id, data, updated_at) VALUES (1, $1, NOW()) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data, updated_at = NOW()",
-      [store.settings]
+      [json(store.settings, {})]
     );
   }
 
+  const userIdMap = {};
   for (const user of store.users || []) {
-    await rawQuery(
-      `INSERT INTO users (id, name, username, role, active, password, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-       ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, username = EXCLUDED.username, role = EXCLUDED.role, active = EXCLUDED.active, password = EXCLUDED.password, updated_at = EXCLUDED.updated_at`,
-      [user.id, user.name, user.username, user.role, user.active !== false, user.password, iso(user.createdAt), iso(user.updatedAt)]
-    );
+    const existing = await rawQuery("SELECT id FROM users WHERE LOWER(username) = LOWER($1)", [user.username]);
+    if (existing.rows[0] && existing.rows[0].id !== user.id) {
+      userIdMap[user.id] = existing.rows[0].id;
+      await rawQuery(
+        "UPDATE users SET name = $2, role = $3, active = $4, password = $5, updated_at = $6 WHERE id = $1",
+        [existing.rows[0].id, user.name, user.role, user.active !== false, json(user.password, {}), iso(user.updatedAt)]
+      );
+    } else {
+      userIdMap[user.id] = user.id;
+      await rawQuery(
+        `INSERT INTO users (id, name, username, role, active, password, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+         ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, username = EXCLUDED.username, role = EXCLUDED.role, active = EXCLUDED.active, password = EXCLUDED.password, updated_at = EXCLUDED.updated_at`,
+        [user.id, user.name, user.username, user.role, user.active !== false, json(user.password, {}), iso(user.createdAt), iso(user.updatedAt)]
+      );
+    }
   }
 
   for (const product of store.products || []) {
@@ -53,16 +68,16 @@ async function main() {
         order.id,
         order.number,
         order.table,
-        order.waiterId,
+        userIdMap[order.waiterId] || order.waiterId,
         order.status,
         order.paymentStatus,
-        order.items || [],
+        json(order.items, []),
         order.notes || "",
         order.discount || 0,
         order.tax || 0,
         order.service || 0,
-        order.payment || null,
-        order.history || [],
+        json(order.payment, null),
+        json(order.history, []),
         order.paidAt || null,
         order.canceledAt || null,
         order.canceledReason || "",
@@ -77,7 +92,26 @@ async function main() {
       `INSERT INTO audit (id, action, user_id, user_name, details, created_at)
        VALUES ($1,$2,$3,$4,$5,$6)
        ON CONFLICT (id) DO NOTHING`,
-      [entry.id, entry.action, entry.userId || "system", entry.userName || "System", entry.details || {}, iso(entry.at)]
+      [entry.id, entry.action, userIdMap[entry.userId] || entry.userId || "system", entry.userName || "System", json(entry.details, {}), iso(entry.at)]
+    );
+  }
+
+  for (const closure of store.cashClosures || []) {
+    await rawQuery(
+      `INSERT INTO cash_closures (id, business_date, expected_cash, counted_cash, note, report, closed_by, closed_by_name, closed_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       ON CONFLICT (id) DO UPDATE SET expected_cash = EXCLUDED.expected_cash, counted_cash = EXCLUDED.counted_cash, note = EXCLUDED.note, report = EXCLUDED.report`,
+      [
+        closure.id,
+        closure.date,
+        closure.expectedCash || 0,
+        closure.countedCash || 0,
+        closure.note || "",
+        json(closure.report, {}),
+        userIdMap[closure.closedBy] || closure.closedBy || "u_admin",
+        closure.closedByName || "Manager",
+        iso(closure.closedAt)
+      ]
     );
   }
 
