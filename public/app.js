@@ -507,6 +507,22 @@ function editProduct(id) {
 	render();
 }
 
+async function deleteProduct(id) {
+	const product = state.products.find((item) => item.id === id);
+	if (!product || !confirm(`Delete ${product.name} from the menu?`)) return;
+	try {
+		const updated = await api(`/api/products/${id}`, { method: "DELETE" });
+		state.products = state.products.map((item) =>
+			item.id === updated.id ? updated : item,
+		);
+		if (state.productForm.id === id) resetProductForm();
+		await loadAudit();
+		toast(`${updated.name} removed from menu`);
+	} catch (error) {
+		toast(error.message);
+	}
+}
+
 function resetProductForm() {
 	state.productForm = {
 		id: "",
@@ -844,7 +860,10 @@ function renderAdmin() {
 			(product) => `
     <div class="admin-row">
       <span><strong>${escapeHtml(product.name)}</strong><small>${escapeHtml(product.category)} - ${money(product.price)} - ${product.available ? "available" : "hidden"}</small></span>
-      <button class="small-action" data-action="edit-product" data-id="${product.id}">Edit</button>
+      <div class="row-actions">
+        <button class="small-action" data-action="edit-product" data-id="${product.id}">Edit</button>
+        <button class="small-action danger" data-action="delete-product" data-id="${product.id}" ${product.available ? "" : "disabled"}>Delete</button>
+      </div>
     </div>
   `,
 		)
@@ -943,6 +962,7 @@ app.addEventListener("click", async (event) => {
 	if (action === "cancel") cancelOrder(target.dataset.id);
 	if (action === "save-product") saveProduct();
 	if (action === "edit-product") editProduct(target.dataset.id);
+	if (action === "delete-product") deleteProduct(target.dataset.id);
 	if (action === "reset-product") {
 		resetProductForm();
 		render();
