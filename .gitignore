@@ -29,3 +29,5 @@ dist/
 build/
 coverage/
 .cache/
+
+.vercel
