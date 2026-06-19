@@ -227,7 +227,8 @@ function detectOrderNotifications(nextOrders) {
 		const before = previous[order.id];
 		if (station && order.stationStatuses && order.stationStatuses[station]) {
 			const beforeStation = before && before.stationStatuses ? before.stationStatuses[station] : "";
-			if (!beforeStation && order.paymentStatus === "open") newStationOrder = true;
+			const nextStation = order.stationStatuses[station].status;
+			if ((!beforeStation || (beforeStation !== "sent" && nextStation === "sent")) && order.paymentStatus === "open") newStationOrder = true;
 		}
 		if (state.me.role === "waiter" && before && before.status !== "done" && order.status === "done" && order.paymentStatus === "open") {
 			waiterReadyOrder = true;
@@ -421,7 +422,11 @@ async function sendOrder() {
 				items: state.cart,
 			}),
 		});
-		state.orders.unshift(order);
+		const existing = state.orders.some((item) => item.id === order.id);
+		state.orders = existing
+			? state.orders.map((item) => (item.id === order.id ? order : item))
+			: [order].concat(state.orders);
+		state.orderSnapshot[order.id] = snapshotOrder(order);
 		state.table = "";
 		state.orderNotes = "";
 		state.cart = [];
