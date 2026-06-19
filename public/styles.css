@@ -483,6 +483,37 @@ button:disabled {
   color: var(--muted);
 }
 
+.station-card-body .line-items {
+  gap: 12px;
+}
+
+.station-card-body .line-items li {
+  display: block;
+}
+
+.station-card-body .line-items strong {
+  font-size: 22px;
+  line-height: 1.25;
+}
+
+.station-board .order-card h3 {
+  font-size: 20px;
+}
+
+.station-board .order-card p {
+  font-size: 15px;
+}
+
+.station-card-body .line-items small,
+.station-order-note {
+  font-size: 17px;
+  line-height: 1.35;
+}
+
+.station-order-note strong {
+  color: var(--ink);
+}
+
 .order-actions {
   display: flex;
   flex-wrap: wrap;

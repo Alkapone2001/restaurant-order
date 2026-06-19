@@ -13,7 +13,7 @@ const state = {
 	orderNotes: "",
 	cart: [],
 	search: "",
-	category: "all",
+	category: "",
 	reportDate: new Date().toISOString().slice(0, 10),
 	payment: {
 		method: "cash",
@@ -362,7 +362,7 @@ async function loadAudit() {
 }
 
 function categories() {
-	return ["all"].concat(
+	return ["", "all"].concat(
 		Array.from(
 			new Set(productCategories.concat(state.products.map((product) => product.category))),
 		).filter(Boolean),
@@ -371,9 +371,10 @@ function categories() {
 
 function menuProducts(includeUnavailable) {
 	const query = state.search.trim().toLowerCase();
+	if (!query && !state.category) return [];
 	return state.products.filter((product) => {
 		if (!includeUnavailable && product.available === false) return false;
-		if (state.category !== "all" && product.category !== state.category)
+		if (state.category && state.category !== "all" && product.category !== state.category)
 			return false;
 		return !query || product.name.toLowerCase().indexOf(query) > -1;
 	});
@@ -643,6 +644,7 @@ function closedOrders() {
 function orderCard(order, context) {
 	const status = order.paymentStatus === "paid" ? "paid" : order.status;
 	const station = context && context.indexOf("station:") === 0 ? context.split(":")[1] : "";
+	const stationContext = Boolean(station);
 	const displayItems = station
 		? order.items.filter((item) => item.station === station)
 		: order.items;
@@ -650,8 +652,8 @@ function orderCard(order, context) {
 		.map(
 			(item) => `
     <li>
-      <span><strong>${item.quantity}x ${escapeHtml(item.name)}</strong><small>${escapeHtml(stationLabels[item.station] || item.station || "")}${item.note ? ` - ${escapeHtml(item.note)}` : ""}</small></span>
-      <strong>${money(item.price * item.quantity)}</strong>
+      <span><strong>${item.quantity}x ${escapeHtml(item.name)}</strong><small>${stationContext ? "" : escapeHtml(stationLabels[item.station] || item.station || "")}${item.note ? `${stationContext ? "" : " - "}${escapeHtml(item.note)}` : ""}</small></span>
+      ${stationContext ? "" : `<strong>${money(item.price * item.quantity)}</strong>`}
     </li>
   `,
 		)
@@ -671,14 +673,14 @@ function orderCard(order, context) {
         </div>
         <span class="status ${status}">${statusLabels[status] || status}</span>
       </div>
-      <div class="order-card-body">
+      <div class="order-card-body ${stationContext ? "station-card-body" : ""}">
         ${order.paymentStatus === "open" ? `<div class="station-summary">${stationSummary}</div>` : ""}
         <ul class="line-items">${items}</ul>
-        ${order.notes ? `<p><strong>Note:</strong> ${escapeHtml(order.notes)}</p>` : ""}
-        ${order.discount ? `<div class="line"><span>Discount</span><strong>-${money(order.discount)}</strong></div>` : ""}
-        <div class="total-row"><span>Total</span><span>${money(order.total)}</span></div>
-        ${order.payment ? `<p>Payment: ${escapeHtml(order.payment.method)}${order.payment.tip ? `, tip ${money(order.payment.tip)}` : ""}</p>` : ""}
-        ${order.paymentStatus === "void" ? `<p>Void: ${escapeHtml(order.canceledReason)}</p>` : ""}
+        ${order.notes ? `<p class="${stationContext ? "station-order-note" : ""}"><strong>Note:</strong> ${escapeHtml(order.notes)}</p>` : ""}
+        ${!stationContext && order.discount ? `<div class="line"><span>Discount</span><strong>-${money(order.discount)}</strong></div>` : ""}
+        ${stationContext ? "" : `<div class="total-row"><span>Total</span><span>${money(order.total)}</span></div>`}
+        ${!stationContext && order.payment ? `<p>Payment: ${escapeHtml(order.payment.method)}${order.payment.tip ? `, tip ${money(order.payment.tip)}` : ""}</p>` : ""}
+        ${!stationContext && order.paymentStatus === "void" ? `<p>Void: ${escapeHtml(order.canceledReason)}</p>` : ""}
         ${orderActions(order, context)}
       </div>
     </article>
@@ -760,12 +762,12 @@ function renderWaiter() {
             <div class="field"><label>Category</label><select class="select" data-action="category">${categories()
 							.map(
 								(category) =>
-									`<option value="${category}" ${state.category === category ? "selected" : ""}>${category === "all" ? "All categories" : escapeHtml(category)}</option>`,
+									`<option value="${category}" ${state.category === category ? "selected" : ""}>${category === "" ? "Choose category" : category === "all" ? "All categories" : escapeHtml(category)}</option>`,
 							)
 							.join("")}</select></div>
             <div class="field full"><label>Order note</label><textarea class="textarea" data-action="order-notes">${escapeHtml(state.orderNotes)}</textarea></div>
           </div>
-          <div class="product-grid">${products || `<p class="empty">No available products.</p>`}</div>
+          <div class="product-grid">${products || `<p class="empty">${state.search.trim() || state.category ? "No available products." : "Search or choose a category to show products."}</p>`}</div>
         </div>
       </section>
       <aside class="panel"><div class="panel-header"><div><h2>Ticket</h2><p>${state.cart.length} item${state.cart.length === 1 ? "" : "s"}</p></div></div>
