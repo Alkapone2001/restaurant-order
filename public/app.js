@@ -685,6 +685,7 @@ function orderCard(order, context) {
 	const status = order.paymentStatus === "paid" ? "paid" : order.status;
 	const station = context && context.indexOf("station:") === 0 ? context.split(":")[1] : "";
 	const stationContext = Boolean(station);
+	const tableTitle = order.table && order.table !== "Pa tavoline" ? ` - ${escapeHtml(order.table)}` : "";
 	const displayItems = station
 		? order.items.filter((item) => item.station === station)
 		: order.items;
@@ -708,7 +709,7 @@ function orderCard(order, context) {
     <article class="order-card ${order.paymentStatus !== "open" ? "closed" : ""}">
       <div class="order-card-header">
         <div>
-          <h3>#${order.number} - ${escapeHtml(order.table)}</h3>
+          <h3>#${order.number}${tableTitle}</h3>
           <p>${escapeHtml(order.waiterName)} - ${new Date(order.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>
         </div>
         <span class="status ${status}">${statusLabels[status] || status}</span>
@@ -797,7 +798,6 @@ function renderWaiter() {
       <section class="panel"><div class="panel-header"><div><h2>Porosi e re</h2><p>${escapeHtml(state.me.name)} po e merr kete porosi.</p></div></div>
         <div class="panel-body">
           <div class="field-grid">
-            <div class="field"><label>Tavolina</label><input class="input" data-action="table" value="${escapeHtml(state.table)}" placeholder="Tavolina 4"></div>
             <div class="field"><label>Kerko</label><input class="input" data-action="search" value="${escapeHtml(state.search)}" placeholder="Artikull menuje"></div>
             <div class="field"><label>Kategoria</label><select class="select" data-action="category">${categories()
 							.map(
