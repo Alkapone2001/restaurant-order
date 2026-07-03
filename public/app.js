@@ -2,7 +2,7 @@ const state = {
 	token: localStorage.getItem("restaurant_token") || "",
 	me: null,
 	settings: null,
-	publicSettings: { restaurantName: "Restaurant Orders" },
+	publicSettings: { restaurantName: "Porosite e Restorantit" },
 	users: [],
 	products: [],
 	orders: [],
@@ -41,15 +41,17 @@ const state = {
 
 const app = document.getElementById("app");
 const statusLabels = {
-	sent: "Sent",
-	received: "Received",
-	preparing: "Preparing",
-	done: "Done",
-	paid: "Paid",
-	canceled: "Canceled",
+	sent: "Derguar",
+	received: "Pranuar",
+	preparing: "Ne pergatitje",
+	done: "Gati",
+	paid: "Paguar",
+	canceled: "Anuluar",
 };
 const statusRank = { sent: 1, received: 2, preparing: 3, done: 4 };
-const stationLabels = { kitchen: "Kitchen" };
+const stationLabels = { kitchen: "Kuzhina" };
+const roleLabels = { admin: "Admin", waiter: "Kamarier", kitchen: "Kuzhina" };
+const paymentLabels = { cash: "Kesh", card: "Karte", mixed: "Te perziera", other: "Tjeter" };
 const productCategories = [
 	"Pizza",
 	"Soups",
@@ -63,6 +65,19 @@ const productCategories = [
 	"Side dish",
 	"Drinks and coctails",
 ];
+const categoryLabels = {
+	Pizza: "Pica",
+	Soups: "Supa",
+	Rissoto: "Rizoto",
+	Pasta: "Pasta",
+	Grill: "Zgare",
+	"Mix grill": "Miks zgare",
+	Fish: "Peshk",
+	"Mix fish": "Miks peshku",
+	Salads: "Sallata",
+	"Side dish": "Garniture",
+	"Drinks and coctails": "Pije dhe koktejle",
+};
 
 function money(value) {
 	return new Intl.NumberFormat("en-US", {
@@ -83,7 +98,15 @@ function escapeHtml(value) {
 function appName() {
 	return (state.settings && state.settings.restaurantName)
 		|| (state.publicSettings && state.publicSettings.restaurantName)
-		|| "Restaurant Orders";
+		|| "Porosite e Restorantit";
+}
+
+function categoryLabel(category) {
+	return categoryLabels[category] || category;
+}
+
+function roleLabel(role) {
+	return roleLabels[role] || role;
 }
 
 function toast(message) {
@@ -241,12 +264,12 @@ function detectOrderNotifications(nextOrders) {
 	});
 
 	if (newStationOrder) {
-		notify("New order received", "A new order arrived for this station.", "new");
-		toast("New order received");
+		notify("Porosi e re", "Nje porosi e re erdhi ne kuzhine.", "new");
+		toast("Porosi e re");
 	}
 	if (waiterReadyOrder) {
-		notify("Order ready for pickup", "An order is fully done.", "ready");
-		toast("Order ready for pickup");
+		notify("Porosia eshte gati", "Porosia eshte perfunduar.", "ready");
+		toast("Porosia eshte gati");
 	}
 	primeOrderSnapshot(nextOrders);
 }
@@ -262,7 +285,7 @@ async function api(path, options) {
 	const data = await response.json();
 	if (!response.ok) {
 		if (response.status === 401) logout(false);
-		throw new Error(data.error || "Request failed");
+		throw new Error(data.error || "Kerkesa deshtoi");
 	}
 	return data;
 }
@@ -273,7 +296,7 @@ async function loadPublicSettings() {
 		state.publicSettings = settings;
 		document.title = appName();
 	} catch (error) {
-		state.publicSettings = { restaurantName: "Restaurant Orders" };
+		state.publicSettings = { restaurantName: "Porosite e Restorantit" };
 	}
 }
 
@@ -331,7 +354,7 @@ async function login() {
 		state.view = defaultViewForRole(data.user.role);
 		await bootstrap();
 		if (state.audioReady) enablePushNotifications();
-		toast(`Logged in as ${data.user.name}`);
+		toast(`U kyce si ${data.user.name}`);
 	} catch (error) {
 		toast(error.message);
 	}
@@ -442,7 +465,7 @@ async function sendOrder() {
 		state.table = "";
 		state.orderNotes = "";
 		state.cart = [];
-		toast(`Order #${order.number} sent`);
+		toast(`Porosia #${order.number} u dergua`);
 	} catch (error) {
 		toast(error.message);
 	}
@@ -458,7 +481,7 @@ async function setStatus(orderId, status, station) {
 			body: JSON.stringify({ status }),
 		});
 		replaceOrder(order);
-		toast(`Order #${order.number}: ${station ? `${stationLabels[station]} ` : ""}${statusLabels[status]}`);
+		toast(`Porosia #${order.number}: ${station ? `${stationLabels[station]} ` : ""}${statusLabels[status]}`);
 	} catch (error) {
 		toast(error.message);
 	}
@@ -478,14 +501,14 @@ async function payOrder(orderId) {
 			tip: 0,
 			note: "",
 		};
-		toast(`Order #${order.number} paid`);
+		toast(`Porosia #${order.number} u pagua`);
 	} catch (error) {
 		toast(error.message);
 	}
 }
 
 async function cancelOrder(orderId) {
-	const reason = prompt("Cancel reason");
+	const reason = prompt("Arsyeja e anulimit");
 	if (!reason) return;
 	try {
 		const order = await api(`/api/orders/${orderId}/cancel`, {
@@ -493,7 +516,7 @@ async function cancelOrder(orderId) {
 			body: JSON.stringify({ reason }),
 		});
 		replaceOrder(order);
-		toast(`Order #${order.number} canceled`);
+		toast(`Porosia #${order.number} u anulua`);
 	} catch (error) {
 		toast(error.message);
 	}
@@ -527,7 +550,7 @@ async function saveProduct() {
 			: state.products.concat(product);
 		resetProductForm();
 		await loadAudit();
-		toast("Menu saved");
+		toast("Menuja u ruajt");
 	} catch (error) {
 		toast(error.message);
 	}
@@ -542,13 +565,13 @@ function editProduct(id) {
 
 async function deleteProduct(id) {
 	const product = state.products.find((item) => item.id === id);
-	if (!product || !confirm(`Delete ${product.name} from the menu?`)) return;
+	if (!product || !confirm(`Te fshihet ${product.name} nga menuja?`)) return;
 	try {
 		const updated = await api(`/api/products/${id}`, { method: "DELETE" });
 		state.products = state.products.filter((item) => item.id !== updated.id);
 		if (state.productForm.id === id) resetProductForm();
 		await loadAudit();
-		toast(`${updated.name} removed from menu`);
+		toast(`${updated.name} u hoq nga menuja`);
 	} catch (error) {
 		toast(error.message);
 	}
@@ -586,7 +609,7 @@ async function saveWaiter() {
 			: state.users.concat(waiter);
 		resetWaiterForm();
 		await loadAudit();
-		toast(`Waiter ${waiter.name} saved`);
+		toast(`Kamarieri ${waiter.name} u ruajt`);
 	} catch (error) {
 		toast(error.message);
 	}
@@ -619,14 +642,14 @@ function resetWaiterForm() {
 
 async function removeWaiter(id) {
 	const waiter = state.users.find((user) => user.id === id);
-	if (!waiter || !confirm(`Remove waiter ${waiter.name}?`)) return;
+	if (!waiter || !confirm(`Te hiqet kamarieri ${waiter.name}?`)) return;
 	try {
 		const updated = await api(`/api/users/waiters/${id}`, { method: "DELETE" });
 		state.users = state.users.map((user) =>
 			user.id === updated.id ? updated : user,
 		);
 		await loadAudit();
-		toast(`Waiter ${updated.name} removed`);
+		toast(`Kamarieri ${updated.name} u hoq`);
 	} catch (error) {
 		toast(error.message);
 	}
@@ -644,7 +667,7 @@ async function closeDay() {
 		});
 		state.closeDay = { countedCash: "", note: "" };
 		await loadReport();
-		toast(`Day closed. Expected cash: ${money(closure.expectedCash)}`);
+		toast(`Dita u mbyll. Kesh i pritur: ${money(closure.expectedCash)}`);
 	} catch (error) {
 		toast(error.message);
 	}
@@ -693,11 +716,11 @@ function orderCard(order, context) {
       <div class="order-card-body ${stationContext ? "station-card-body" : ""}">
         ${order.paymentStatus === "open" ? `<div class="station-summary">${stationSummary}</div>` : ""}
         <ul class="line-items">${items}</ul>
-        ${order.notes ? `<p class="${stationContext ? "station-order-note" : ""}"><strong>Note:</strong> ${escapeHtml(order.notes)}</p>` : ""}
-        ${!stationContext && order.discount ? `<div class="line"><span>Discount</span><strong>-${money(order.discount)}</strong></div>` : ""}
-        ${stationContext ? "" : `<div class="total-row"><span>Total</span><span>${money(order.total)}</span></div>`}
-        ${!stationContext && order.payment ? `<p>Payment: ${escapeHtml(order.payment.method)}${order.payment.tip ? `, tip ${money(order.payment.tip)}` : ""}</p>` : ""}
-        ${!stationContext && order.paymentStatus === "void" ? `<p>Void: ${escapeHtml(order.canceledReason)}</p>` : ""}
+        ${order.notes ? `<p class="${stationContext ? "station-order-note" : ""}"><strong>Shenim:</strong> ${escapeHtml(order.notes)}</p>` : ""}
+        ${!stationContext && order.discount ? `<div class="line"><span>Zbritje</span><strong>-${money(order.discount)}</strong></div>` : ""}
+        ${stationContext ? "" : `<div class="total-row"><span>Totali</span><span>${money(order.total)}</span></div>`}
+        ${!stationContext && order.payment ? `<p>Pagesa: ${escapeHtml(paymentLabels[order.payment.method] || order.payment.method)}${order.payment.tip ? `, bakshish ${money(order.payment.tip)}` : ""}</p>` : ""}
+        ${!stationContext && order.paymentStatus === "void" ? `<p>Anuluar: ${escapeHtml(order.canceledReason)}</p>` : ""}
         ${orderActions(order, context)}
       </div>
     </article>
@@ -711,21 +734,21 @@ function orderActions(order, context) {
 		const stationStatus = order.stationStatuses && order.stationStatuses[station] ? order.stationStatuses[station].status : "";
 		return `
       <div class="order-actions">
-        <button class="small-action" data-action="status" data-id="${order.id}" data-station="${station}" data-status="received" ${stationStatus !== "sent" ? "disabled" : ""}>Confirm</button>
-        <button class="small-action" data-action="status" data-id="${order.id}" data-station="${station}" data-status="preparing" ${stationStatus !== "received" ? "disabled" : ""}>Prepare</button>
-        <button class="small-action ready" data-action="status" data-id="${order.id}" data-station="${station}" data-status="done" ${["received", "preparing"].indexOf(stationStatus) === -1 ? "disabled" : ""}>Done</button>
+        <button class="small-action" data-action="status" data-id="${order.id}" data-station="${station}" data-status="received" ${stationStatus !== "sent" ? "disabled" : ""}>Prano</button>
+        <button class="small-action" data-action="status" data-id="${order.id}" data-station="${station}" data-status="preparing" ${stationStatus !== "received" ? "disabled" : ""}>Pergatit</button>
+        <button class="small-action ready" data-action="status" data-id="${order.id}" data-station="${station}" data-status="done" ${["received", "preparing"].indexOf(stationStatus) === -1 ? "disabled" : ""}>Gati</button>
       </div>
     `;
 	}
 	return `
     <div class="payment-box">
       <select class="select compact" data-action="pay-method">
-        ${["cash", "card", "mixed", "other"].map((method) => `<option value="${method}" ${state.payment.method === method ? "selected" : ""}>${method}</option>`).join("")}
+        ${["cash", "card", "mixed", "other"].map((method) => `<option value="${method}" ${state.payment.method === method ? "selected" : ""}>${paymentLabels[method]}</option>`).join("")}
       </select>
-      <input class="input compact" type="number" step="0.01" data-action="pay-discount" value="${escapeHtml(state.payment.discount)}" placeholder="Discount">
-      <input class="input compact" type="number" step="0.01" data-action="pay-tip" value="${escapeHtml(state.payment.tip)}" placeholder="Tip">
-      <button class="small-action ready" data-action="paid" data-id="${order.id}" ${order.status !== "done" ? "disabled" : ""}>Paid</button>
-      <button class="small-action danger" data-action="cancel" data-id="${order.id}">Void</button>
+      <input class="input compact" type="number" step="0.01" data-action="pay-discount" value="${escapeHtml(state.payment.discount)}" placeholder="Zbritje">
+      <input class="input compact" type="number" step="0.01" data-action="pay-tip" value="${escapeHtml(state.payment.tip)}" placeholder="Bakshish">
+      <button class="small-action ready" data-action="paid" data-id="${order.id}" ${order.status !== "done" ? "disabled" : ""}>Paguar</button>
+      <button class="small-action danger" data-action="cancel" data-id="${order.id}">Anulo</button>
     </div>
   `;
 }
@@ -734,11 +757,11 @@ function renderLogin() {
 	return `
     <main class="login-screen">
       <section class="login-card">
-        <div class="brand big"><div class="brand-mark">RO</div><div><h1>${escapeHtml(appName())}</h1><span>Secure staff access</span></div></div>
-        <div class="field"><label>Username</label><input class="input" data-action="login-username" value="${escapeHtml(state.login.username)}"></div>
-        <div class="field"><label>Password</label><input class="input" type="password" data-action="login-password" value="${escapeHtml(state.login.password)}"></div>
-        <button class="primary" data-action="login">Log in</button>
-        <p class="empty">Use your assigned staff login.</p>
+        <div class="brand big"><div class="brand-mark">RO</div><div><h1>${escapeHtml(appName())}</h1><span>Hyrje per stafin</span></div></div>
+        <div class="field"><label>Perdoruesi</label><input class="input" data-action="login-username" value="${escapeHtml(state.login.username)}"></div>
+        <div class="field"><label>Fjalekalimi</label><input class="input" type="password" data-action="login-password" value="${escapeHtml(state.login.password)}"></div>
+        <button class="primary" data-action="login">Kycu</button>
+        <p class="empty">Perdor hyrjen e caktuar per stafin.</p>
       </section>
       ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}
     </main>
@@ -750,7 +773,7 @@ function renderWaiter() {
 		.map(
 			(product) => `
     <button class="product" data-action="add-product" data-id="${product.id}">
-      <strong>${escapeHtml(product.name)}</strong><span>${escapeHtml(product.category)}</span><span class="price">${money(product.price)}</span>
+      <strong>${escapeHtml(product.name)}</strong><span>${escapeHtml(categoryLabel(product.category))}</span><span class="price">${money(product.price)}</span>
     </button>
   `,
 		)
@@ -763,7 +786,7 @@ function renderWaiter() {
 			if (!product) return "";
 			return `
       <div class="cart-item">
-        <div><h3>${escapeHtml(product.name)}</h3><p>${money(product.price)} each</p><input class="input" data-action="cart-note" data-id="${product.id}" value="${escapeHtml(item.note)}" placeholder="Kitchen note"></div>
+        <div><h3>${escapeHtml(product.name)}</h3><p>${money(product.price)} secila</p><input class="input" data-action="cart-note" data-id="${product.id}" value="${escapeHtml(item.note)}" placeholder="Shenim per kuzhinen"></div>
         <div class="quantity"><button class="icon-button" data-action="cart-minus" data-id="${product.id}">-</button><strong>${item.quantity}</strong><button class="icon-button" data-action="cart-plus" data-id="${product.id}">+</button></div>
       </div>
     `;
@@ -771,29 +794,29 @@ function renderWaiter() {
 		.join("");
 	return `
     <div class="workspace">
-      <section class="panel"><div class="panel-header"><div><h2>New order</h2><p>${escapeHtml(state.me.name)} is taking this order.</p></div></div>
+      <section class="panel"><div class="panel-header"><div><h2>Porosi e re</h2><p>${escapeHtml(state.me.name)} po e merr kete porosi.</p></div></div>
         <div class="panel-body">
           <div class="field-grid">
-            <div class="field"><label>Table</label><input class="input" data-action="table" value="${escapeHtml(state.table)}" placeholder="Table 4"></div>
-            <div class="field"><label>Search</label><input class="input" data-action="search" value="${escapeHtml(state.search)}" placeholder="Menu item"></div>
-            <div class="field"><label>Category</label><select class="select" data-action="category">${categories()
+            <div class="field"><label>Tavolina</label><input class="input" data-action="table" value="${escapeHtml(state.table)}" placeholder="Tavolina 4"></div>
+            <div class="field"><label>Kerko</label><input class="input" data-action="search" value="${escapeHtml(state.search)}" placeholder="Artikull menuje"></div>
+            <div class="field"><label>Kategoria</label><select class="select" data-action="category">${categories()
 							.map(
 								(category) =>
-									`<option value="${category}" ${state.category === category ? "selected" : ""}>${category === "" ? "Choose category" : category === "all" ? "All categories" : escapeHtml(category)}</option>`,
+									`<option value="${category}" ${state.category === category ? "selected" : ""}>${category === "" ? "Zgjidh kategorine" : category === "all" ? "Te gjitha kategorite" : escapeHtml(categoryLabel(category))}</option>`,
 							)
 							.join("")}</select></div>
-            <div class="field full"><label>Order note</label><textarea class="textarea" data-action="order-notes">${escapeHtml(state.orderNotes)}</textarea></div>
+            <div class="field full"><label>Shenim porosie</label><textarea class="textarea" data-action="order-notes">${escapeHtml(state.orderNotes)}</textarea></div>
           </div>
-          <div class="product-grid">${products || `<p class="empty">${state.search.trim() || state.category ? "No available products." : "Search or choose a category to show products."}</p>`}</div>
+          <div class="product-grid">${products || `<p class="empty">${state.search.trim() || state.category ? "Nuk ka produkte te disponueshme." : "Kerko ose zgjidh nje kategori per te shfaqur produktet."}</p>`}</div>
         </div>
       </section>
-      <aside class="panel"><div class="panel-header"><div><h2>Ticket</h2><p>${state.cart.length} item${state.cart.length === 1 ? "" : "s"}</p></div></div>
-        <div class="panel-body"><div class="cart-list">${cart || `<p class="empty">Tap products to add them.</p>`}</div><div class="cart-footer"><div class="total-row"><span>Total</span><span>${money(cartTotal())}</span></div><button class="primary" data-action="send-order" ${state.cart.length ? "" : "disabled"}>Send order</button></div></div>
+      <aside class="panel"><div class="panel-header"><div><h2>Fatura</h2><p>${state.cart.length} artikull${state.cart.length === 1 ? "" : "e"}</p></div></div>
+        <div class="panel-body"><div class="cart-list">${cart || `<p class="empty">Prek produktet per t'i shtuar.</p>`}</div><div class="cart-footer"><div class="total-row"><span>Totali</span><span>${money(cartTotal())}</span></div><button class="primary" data-action="send-order" ${state.cart.length ? "" : "disabled"}>Dergo porosine</button></div></div>
       </aside>
-      <section class="panel span"><div class="panel-header"><div><h2>My active orders</h2><p>Close paid orders only after the kitchen marks them done.</p></div></div><div class="panel-body"><div class="order-list">${
+      <section class="panel span"><div class="panel-header"><div><h2>Porosite e mia aktive</h2><p>Mbylli porosite vetem pasi kuzhina i shenon gati.</p></div></div><div class="panel-body"><div class="order-list">${
 				activeOrders()
 					.map((order) => orderCard(order, "waiter"))
-					.join("") || `<p class="empty">No active orders.</p>`
+					.join("") || `<p class="empty">Nuk ka porosi aktive.</p>`
 			}</div></div></section>
     </div>
   `;
@@ -801,16 +824,16 @@ function renderWaiter() {
 
 function renderStation(station) {
 	const columns = [
-		{ title: "New", statuses: ["sent"] },
-		{ title: "Cooking", statuses: ["received", "preparing"] },
-		{ title: "Ready", statuses: ["done"] },
+		{ title: "Te reja", statuses: ["sent"] },
+		{ title: "Ne pergatitje", statuses: ["received", "preparing"] },
+		{ title: "Gati", statuses: ["done"] },
 	];
-	return `<section class="station-board"><div class="panel station-hero"><div class="panel-header"><div><h2>${stationLabels[station]} orders</h2><p>Receive and complete incoming orders.</p></div></div></div><div class="kitchen-grid">${columns
+	return `<section class="station-board"><div class="panel station-hero"><div class="panel-header"><div><h2>Porosite e ${stationLabels[station]}</h2><p>Prano dhe perfundo porosite qe vijne.</p></div></div></div><div class="kitchen-grid">${columns
 		.map((column) => {
 			const orders = activeOrders().filter(
 				(order) => order.stationStatuses && order.stationStatuses[station] && column.statuses.indexOf(order.stationStatuses[station].status) > -1,
 			);
-			return `<div class="column"><h2>${stationLabels[station]} - ${column.title}</h2><div class="order-list">${orders.map((order) => orderCard(order, `station:${station}`)).join("") || `<p class="empty">Nothing here.</p>`}</div></div>`;
+			return `<div class="column"><h2>${stationLabels[station]} - ${column.title}</h2><div class="order-list">${orders.map((order) => orderCard(order, `station:${station}`)).join("") || `<p class="empty">Asgje ketu.</p>`}</div></div>`;
 		})
 		.join("")}</div></section>`;
 }
@@ -829,23 +852,23 @@ function renderReports() {
 	};
 	return `
     <section class="report-grid">
-      <aside class="panel"><div class="panel-header"><div><h2>End of day</h2><p>Paid sales, voids, and cash control.</p></div></div>
+      <aside class="panel"><div class="panel-header"><div><h2>Mbyllja e dites</h2><p>Shitjet e paguara, anulimet dhe kontrolli i keshit.</p></div></div>
         <div class="panel-body cart-list">
-          <div class="field"><label>Date</label><input class="input" type="date" data-action="report-date" value="${escapeHtml(state.reportDate)}"></div>
-          <div class="metric"><span>Total sales</span><strong>${money(report.total)}</strong></div>
-          <div class="metric"><span>Paid orders</span><strong>${report.orderCount}</strong></div>
-          <div class="metric"><span>Voids</span><strong>${report.voidCount}</strong></div>
-          <div class="field"><label>Counted cash</label><input class="input" type="number" step="0.01" data-action="close-cash" value="${escapeHtml(state.closeDay.countedCash)}"></div>
-          <div class="field"><label>Closing note</label><textarea class="textarea" data-action="close-note">${escapeHtml(state.closeDay.note)}</textarea></div>
-          <button class="primary" data-action="close-day">Close day</button>
+          <div class="field"><label>Data</label><input class="input" type="date" data-action="report-date" value="${escapeHtml(state.reportDate)}"></div>
+          <div class="metric"><span>Shitje totale</span><strong>${money(report.total)}</strong></div>
+          <div class="metric"><span>Porosi te paguara</span><strong>${report.orderCount}</strong></div>
+          <div class="metric"><span>Anulime</span><strong>${report.voidCount}</strong></div>
+          <div class="field"><label>Kesh i numeruar</label><input class="input" type="number" step="0.01" data-action="close-cash" value="${escapeHtml(state.closeDay.countedCash)}"></div>
+          <div class="field"><label>Shenim mbylljeje</label><textarea class="textarea" data-action="close-note">${escapeHtml(state.closeDay.note)}</textarea></div>
+          <button class="primary" data-action="close-day">Mbyll diten</button>
         </div>
       </aside>
-      <section class="panel"><div class="panel-header"><div><h2>Report</h2><p>Breakdown for ${escapeHtml(report.date || state.reportDate)}.</p></div></div>
+      <section class="panel"><div class="panel-header"><div><h2>Raporti</h2><p>Permbledhje per ${escapeHtml(report.date || state.reportDate)}.</p></div></div>
         <div class="panel-body">
-          <div class="metrics-row"><div class="metric"><span>Subtotal</span><strong>${money(report.subtotal)}</strong></div><div class="metric"><span>Discounts</span><strong>${money(report.discounts)}</strong></div><div class="metric"><span>Tips</span><strong>${money(report.tips)}</strong></div></div>
-          <h3 class="section-title">Payment methods</h3><div class="report-list">${report.byMethod.map((row) => `<div class="report-row"><span>${escapeHtml(row.method)} (${row.orders})</span><strong>${money(row.total)}</strong></div>`).join("")}</div>
-          <h3 class="section-title">Waiters</h3><div class="report-list">${report.byWaiter.map((row) => `<div class="report-row"><span>${escapeHtml(row.waiterName)} (${row.orders})</span><strong>${money(row.total)}</strong></div>`).join("")}</div>
-          <h3 class="section-title">Paid orders</h3><div class="order-list">${report.orders.map((order) => orderCard(order, "report")).join("") || `<p class="empty">No paid orders.</p>`}</div>
+          <div class="metrics-row"><div class="metric"><span>Nentotali</span><strong>${money(report.subtotal)}</strong></div><div class="metric"><span>Zbritje</span><strong>${money(report.discounts)}</strong></div><div class="metric"><span>Bakshishe</span><strong>${money(report.tips)}</strong></div></div>
+          <h3 class="section-title">Metodat e pageses</h3><div class="report-list">${report.byMethod.map((row) => `<div class="report-row"><span>${escapeHtml(paymentLabels[row.method] || row.method)} (${row.orders})</span><strong>${money(row.total)}</strong></div>`).join("")}</div>
+          <h3 class="section-title">Kamarieret</h3><div class="report-list">${report.byWaiter.map((row) => `<div class="report-row"><span>${escapeHtml(row.waiterName)} (${row.orders})</span><strong>${money(row.total)}</strong></div>`).join("")}</div>
+          <h3 class="section-title">Porosi te paguara</h3><div class="order-list">${report.orders.map((order) => orderCard(order, "report")).join("") || `<p class="empty">Nuk ka porosi te paguara.</p>`}</div>
         </div>
       </section>
     </section>
@@ -858,10 +881,10 @@ function renderStaff() {
 		.map(
 			(waiter) => `
     <div class="admin-row ${waiter.active ? "" : "muted-row"}">
-      <span><strong>${escapeHtml(waiter.name)}</strong><small>${escapeHtml(waiter.username)} - ${waiter.active ? "active" : "removed"}</small></span>
+      <span><strong>${escapeHtml(waiter.name)}</strong><small>${escapeHtml(waiter.username)} - ${waiter.active ? "aktiv" : "i hequr"}</small></span>
       <div class="row-actions">
-        <button class="small-action" data-action="edit-waiter" data-id="${waiter.id}">Edit</button>
-        <button class="small-action danger" data-action="remove-waiter" data-id="${waiter.id}" ${waiter.active ? "" : "disabled"}>Remove</button>
+        <button class="small-action" data-action="edit-waiter" data-id="${waiter.id}">Ndrysho</button>
+        <button class="small-action danger" data-action="remove-waiter" data-id="${waiter.id}" ${waiter.active ? "" : "disabled"}>Hiq</button>
       </div>
     </div>
   `,
@@ -870,18 +893,18 @@ function renderStaff() {
 
 	return `
     <section class="admin-grid">
-      <div class="panel"><div class="panel-header"><div><h2>${state.waiterForm.id ? "Edit waiter" : "Add waiter"}</h2><p>Create staff login accounts for waiters.</p></div></div>
+      <div class="panel"><div class="panel-header"><div><h2>${state.waiterForm.id ? "Ndrysho kamarierin" : "Shto kamarier"}</h2><p>Krijo hyrje per kamarieret.</p></div></div>
         <div class="panel-body cart-list">
-          <div class="field"><label>Name</label><input class="input" data-action="waiter-name" value="${escapeHtml(state.waiterForm.name)}" placeholder="Waiter name"></div>
-          <div class="field"><label>Username</label><input class="input" data-action="waiter-username" value="${escapeHtml(state.waiterForm.username)}" placeholder="login username"></div>
-          <div class="field"><label>Password</label><input class="input" type="password" data-action="waiter-password" value="${escapeHtml(state.waiterForm.password)}" placeholder="${state.waiterForm.id ? "leave empty to keep current" : "minimum 6 characters"}"></div>
-          <label class="check"><input type="checkbox" data-action="waiter-active" ${state.waiterForm.active ? "checked" : ""}> Active</label>
-          <button class="primary" data-action="save-waiter">${state.waiterForm.id ? "Update waiter" : "Add waiter"}</button>
-          <button class="secondary" data-action="reset-waiter">Clear</button>
+          <div class="field"><label>Emri</label><input class="input" data-action="waiter-name" value="${escapeHtml(state.waiterForm.name)}" placeholder="Emri i kamarierit"></div>
+          <div class="field"><label>Perdoruesi</label><input class="input" data-action="waiter-username" value="${escapeHtml(state.waiterForm.username)}" placeholder="perdoruesi per hyrje"></div>
+          <div class="field"><label>Fjalekalimi</label><input class="input" type="password" data-action="waiter-password" value="${escapeHtml(state.waiterForm.password)}" placeholder="${state.waiterForm.id ? "lere bosh per ta mbajtur aktualin" : "minimumi 6 karaktere"}"></div>
+          <label class="check"><input type="checkbox" data-action="waiter-active" ${state.waiterForm.active ? "checked" : ""}> Aktiv</label>
+          <button class="primary" data-action="save-waiter">${state.waiterForm.id ? "Perditeso kamarierin" : "Shto kamarier"}</button>
+          <button class="secondary" data-action="reset-waiter">Pastro</button>
         </div>
       </div>
-      <div class="panel"><div class="panel-header"><div><h2>Waiter accounts</h2><p>${state.users.filter((user) => user.role === "waiter" && user.active).length} active.</p></div></div><div class="panel-body"><div class="admin-list">${waiterRows || `<p class="empty">No waiters yet.</p>`}</div></div></div>
-      <div class="panel span"><div class="panel-header"><div><h2>Audit log</h2><p>Latest staff changes.</p></div></div><div class="panel-body"><div class="admin-list">${state.audit.map((item) => `<div class="admin-row"><span><strong>${escapeHtml(item.action)}</strong><small>${escapeHtml(item.userName)} - ${new Date(item.at).toLocaleString()}</small></span></div>`).join("") || `<p class="empty">No audit entries.</p>`}</div></div></div>
+      <div class="panel"><div class="panel-header"><div><h2>Llogarite e kamariereve</h2><p>${state.users.filter((user) => user.role === "waiter" && user.active).length} aktiv.</p></div></div><div class="panel-body"><div class="admin-list">${waiterRows || `<p class="empty">Nuk ka ende kamariere.</p>`}</div></div></div>
+      <div class="panel span"><div class="panel-header"><div><h2>Historiku</h2><p>Ndryshimet e fundit te stafit.</p></div></div><div class="panel-body"><div class="admin-list">${state.audit.map((item) => `<div class="admin-row"><span><strong>${escapeHtml(item.action)}</strong><small>${escapeHtml(item.userName)} - ${new Date(item.at).toLocaleString()}</small></span></div>`).join("") || `<p class="empty">Nuk ka shenime historiku.</p>`}</div></div></div>
     </section>
   `;
 }
@@ -891,10 +914,10 @@ function renderAdmin() {
 		.map(
 			(product) => `
     <div class="admin-row">
-      <span><strong>${escapeHtml(product.name)}</strong><small>${escapeHtml(product.category)} - ${money(product.price)} - ${product.available ? "available" : "hidden"}</small></span>
+      <span><strong>${escapeHtml(product.name)}</strong><small>${escapeHtml(categoryLabel(product.category))} - ${money(product.price)} - ${product.available ? "ne dispozicion" : "i fshehur"}</small></span>
       <div class="row-actions">
-        <button class="small-action" data-action="edit-product" data-id="${product.id}">Edit</button>
-        <button class="small-action danger" data-action="delete-product" data-id="${product.id}" ${product.available ? "" : "disabled"}>Delete</button>
+        <button class="small-action" data-action="edit-product" data-id="${product.id}">Ndrysho</button>
+        <button class="small-action danger" data-action="delete-product" data-id="${product.id}" ${product.available ? "" : "disabled"}>Fshi</button>
       </div>
     </div>
   `,
@@ -902,18 +925,18 @@ function renderAdmin() {
 		.join("");
 	return `
     <section class="admin-grid">
-      <div class="panel"><div class="panel-header"><div><h2>Menu management</h2><p>Add products, change prices, hide unavailable items.</p></div></div>
+      <div class="panel"><div class="panel-header"><div><h2>Menaxhimi i menuse</h2><p>Shto produkte, ndrysho cmime, fsheh artikuj qe nuk jane ne dispozicion.</p></div></div>
         <div class="panel-body cart-list">
-          <div class="field"><label>Name</label><input class="input" data-action="product-name" value="${escapeHtml(state.productForm.name)}"></div>
-          <div class="field"><label>Category</label><select class="select" data-action="product-category">${productCategories.map((category) => `<option value="${escapeHtml(category)}" ${state.productForm.category === category ? "selected" : ""}>${escapeHtml(category)}</option>`).join("")}</select></div>
-          <div class="field-grid"><div class="field"><label>Price</label><input class="input" type="number" step="0.01" data-action="product-price" value="${escapeHtml(state.productForm.price)}"></div><div class="field"><label>Sort</label><input class="input" type="number" data-action="product-sort" value="${escapeHtml(state.productForm.sort)}"></div></div>
-          <label class="check"><input type="checkbox" data-action="product-available" ${state.productForm.available ? "checked" : ""}> Available</label>
-          <button class="primary" data-action="save-product">${state.productForm.id ? "Update product" : "Add product"}</button>
-          <button class="secondary" data-action="reset-product">Clear</button>
+          <div class="field"><label>Emri</label><input class="input" data-action="product-name" value="${escapeHtml(state.productForm.name)}"></div>
+          <div class="field"><label>Kategoria</label><select class="select" data-action="product-category">${productCategories.map((category) => `<option value="${escapeHtml(category)}" ${state.productForm.category === category ? "selected" : ""}>${escapeHtml(categoryLabel(category))}</option>`).join("")}</select></div>
+          <div class="field-grid"><div class="field"><label>Cmimi</label><input class="input" type="number" step="0.01" data-action="product-price" value="${escapeHtml(state.productForm.price)}"></div><div class="field"><label>Renditja</label><input class="input" type="number" data-action="product-sort" value="${escapeHtml(state.productForm.sort)}"></div></div>
+          <label class="check"><input type="checkbox" data-action="product-available" ${state.productForm.available ? "checked" : ""}> Ne dispozicion</label>
+          <button class="primary" data-action="save-product">${state.productForm.id ? "Perditeso produktin" : "Shto produkt"}</button>
+          <button class="secondary" data-action="reset-product">Pastro</button>
         </div>
       </div>
-      <div class="panel"><div class="panel-header"><div><h2>Products</h2><p>${state.products.length} menu items.</p></div></div><div class="panel-body"><div class="admin-list">${rows}</div></div></div>
-      <div class="panel span"><div class="panel-header"><div><h2>Audit log</h2><p>Latest operational changes.</p></div></div><div class="panel-body"><div class="admin-list">${state.audit.map((item) => `<div class="admin-row"><span><strong>${escapeHtml(item.action)}</strong><small>${escapeHtml(item.userName)} - ${new Date(item.at).toLocaleString()}</small></span></div>`).join("") || `<p class="empty">No audit entries.</p>`}</div></div></div>
+      <div class="panel"><div class="panel-header"><div><h2>Produktet</h2><p>${state.products.length} artikuj menuje.</p></div></div><div class="panel-body"><div class="admin-list">${rows}</div></div></div>
+      <div class="panel span"><div class="panel-header"><div><h2>Historiku</h2><p>Ndryshimet e fundit operative.</p></div></div><div class="panel-body"><div class="admin-list">${state.audit.map((item) => `<div class="admin-row"><span><strong>${escapeHtml(item.action)}</strong><small>${escapeHtml(item.userName)} - ${new Date(item.at).toLocaleString()}</small></span></div>`).join("") || `<p class="empty">Nuk ka shenime historiku.</p>`}</div></div></div>
     </section>
   `;
 }
@@ -930,16 +953,16 @@ function renderShell() {
 						? renderAdmin()
 						: renderWaiter();
 	const labels = {
-		waiter: "Waiter",
-		kitchen: "Kitchen",
-		reports: "Reports",
-		staff: "Staff",
-		admin: "Menu",
+		waiter: "Kamarier",
+		kitchen: "Kuzhina",
+		reports: "Raporte",
+		staff: "Stafi",
+		admin: "Menuja",
 	};
 	return `
     <div class="app-shell">
       <header class="topbar">
-        <div class="brand"><div class="brand-mark">RO</div><div><h1>${escapeHtml(appName())}</h1><span>${escapeHtml(state.me.name)} - ${escapeHtml(state.me.role)}</span></div></div>
+        <div class="brand"><div class="brand-mark">RO</div><div><h1>${escapeHtml(appName())}</h1><span>${escapeHtml(state.me.name)} - ${escapeHtml(roleLabel(state.me.role))}</span></div></div>
         <nav class="tabs">${allowedViews()
 					.map(
 						(view) =>
@@ -947,7 +970,7 @@ function renderShell() {
 					)
 					.join(
 						"",
-					)}<button class="tab" data-action="enable-sound">${state.audioReady ? "Alerts on" : "Enable alerts"}</button><button class="tab" data-action="logout">Logout</button></nav>
+					)}<button class="tab" data-action="enable-sound">${state.audioReady ? "Njoftimet aktive" : "Aktivizo njoftimet"}</button><button class="tab" data-action="logout">Dil</button></nav>
       </header>
       <main class="main">${body}</main>
       ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}
@@ -1000,7 +1023,7 @@ app.addEventListener("click", async (event) => {
 		await enableAlerts();
 		playTone("ready");
 		vibrate("ready");
-		toast("Alerts enabled");
+		toast("Njoftimet u aktivizuan");
 		return;
 	}
 	if (action === "login") login();

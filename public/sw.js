@@ -6,9 +6,9 @@ self.addEventListener("push", (event) => {
     data = {};
   }
 
-  const title = data.title || "Restaurant Orders";
+  const title = data.title || "Porosite e Restorantit";
   const options = {
-    body: data.body || "New update",
+    body: data.body || "Njoftim i ri",
     tag: data.tag || "restaurant-order",
     renotify: true,
     requireInteraction: true,

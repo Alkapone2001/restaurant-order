@@ -1,6 +1,6 @@
 {
-  "name": "Restaurant Orders",
-  "short_name": "Orders",
+  "name": "Porosite e Restorantit",
+  "short_name": "Porosite",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
