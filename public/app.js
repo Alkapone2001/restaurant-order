@@ -49,7 +49,7 @@ const statusLabels = {
 	canceled: "Canceled",
 };
 const statusRank = { sent: 1, received: 2, preparing: 3, done: 4 };
-const stationLabels = { bar: "Bartender", pizza: "Pizzaman", kitchen: "Kitchen" };
+const stationLabels = { kitchen: "Kitchen" };
 const productCategories = [
 	"Pizza",
 	"Soups",
@@ -197,10 +197,8 @@ function notify(title, body, kind) {
 
 function stationForCurrentView() {
 	if (!state.me) return "";
-	if (state.me.role === "bartender") return "bar";
-	if (state.me.role === "pizzaman") return "pizza";
 	if (state.me.role === "kitchen") return "kitchen";
-	if (["bar", "pizza", "kitchen"].indexOf(state.view) > -1) return state.view;
+	if (state.view === "kitchen") return state.view;
 	return "";
 }
 
@@ -282,17 +280,13 @@ async function loadPublicSettings() {
 function allowedViews() {
 	if (!state.me) return [];
 	if (state.me.role === "admin")
-		return ["waiter", "bar", "pizza", "kitchen", "reports", "staff", "admin"];
+		return ["waiter", "kitchen", "reports", "staff", "admin"];
 	if (state.me.role === "kitchen") return ["kitchen"];
-	if (state.me.role === "bartender") return ["bar"];
-	if (state.me.role === "pizzaman") return ["pizza"];
 	return ["waiter"];
 }
 
 function defaultViewForRole(role) {
 	if (role === "kitchen") return "kitchen";
-	if (role === "bartender") return "bar";
-	if (role === "pizzaman") return "pizza";
 	return "waiter";
 }
 
@@ -309,7 +303,7 @@ async function bootstrap() {
 		state.users = data.users || [];
 		state.products = data.products;
 		state.orders = data.orders;
-		if (["kitchen", "bartender", "pizzaman"].indexOf(state.me.role) > -1) {
+		if (state.me.role === "kitchen") {
 			state.view = defaultViewForRole(state.me.role);
 		}
 		if (allowedViews().indexOf(state.view) === -1)
@@ -683,7 +677,7 @@ function orderCard(order, context) {
 		.join("");
 	const stationSummary = order.stationStatuses
 		? Object.keys(order.stationStatuses)
-				.map((key) => `<span class="status ${order.stationStatuses[key].status}">${stationLabels[key]}: ${statusLabels[order.stationStatuses[key].status]}</span>`)
+				.map((key) => `<span class="status ${order.stationStatuses[key].status}">${stationLabels[key] || key}: ${statusLabels[order.stationStatuses[key].status]}</span>`)
 				.join("")
 		: "";
 
@@ -744,7 +738,7 @@ function renderLogin() {
         <div class="field"><label>Username</label><input class="input" data-action="login-username" value="${escapeHtml(state.login.username)}"></div>
         <div class="field"><label>Password</label><input class="input" type="password" data-action="login-password" value="${escapeHtml(state.login.password)}"></div>
         <button class="primary" data-action="login">Log in</button>
-        <p class="empty">Defaults: admin/admin123, kitchen/kitchen123, bartender/bar123, pizzaman/pizza123.</p>
+        <p class="empty">Defaults: admin/admin123, kitchen/kitchen123.</p>
       </section>
       ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}
     </main>
@@ -796,7 +790,7 @@ function renderWaiter() {
       <aside class="panel"><div class="panel-header"><div><h2>Ticket</h2><p>${state.cart.length} item${state.cart.length === 1 ? "" : "s"}</p></div></div>
         <div class="panel-body"><div class="cart-list">${cart || `<p class="empty">Tap products to add them.</p>`}</div><div class="cart-footer"><div class="total-row"><span>Total</span><span>${money(cartTotal())}</span></div><button class="primary" data-action="send-order" ${state.cart.length ? "" : "disabled"}>Send order</button></div></div>
       </aside>
-      <section class="panel span"><div class="panel-header"><div><h2>My active orders</h2><p>Close paid orders only after every required station marks its part done.</p></div></div><div class="panel-body"><div class="order-list">${
+      <section class="panel span"><div class="panel-header"><div><h2>My active orders</h2><p>Close paid orders only after the kitchen marks them done.</p></div></div><div class="panel-body"><div class="order-list">${
 				activeOrders()
 					.map((order) => orderCard(order, "waiter"))
 					.join("") || `<p class="empty">No active orders.</p>`
@@ -811,7 +805,7 @@ function renderStation(station) {
 		{ title: "Cooking", statuses: ["received", "preparing"] },
 		{ title: "Ready", statuses: ["done"] },
 	];
-	return `<section class="station-board"><div class="panel station-hero"><div class="panel-header"><div><h2>${stationLabels[station]} orders</h2><p>Receive and complete only the items assigned to this station.</p></div></div></div><div class="kitchen-grid">${columns
+	return `<section class="station-board"><div class="panel station-hero"><div class="panel-header"><div><h2>${stationLabels[station]} orders</h2><p>Receive and complete incoming orders.</p></div></div></div><div class="kitchen-grid">${columns
 		.map((column) => {
 			const orders = activeOrders().filter(
 				(order) => order.stationStatuses && order.stationStatuses[station] && column.statuses.indexOf(order.stationStatuses[station].status) > -1,
@@ -928,10 +922,6 @@ function renderShell() {
 	const body =
 		state.view === "kitchen"
 			? renderStation("kitchen")
-			: state.view === "bar"
-				? renderStation("bar")
-				: state.view === "pizza"
-					? renderStation("pizza")
 			: state.view === "reports"
 				? renderReports()
 				: state.view === "staff"
@@ -941,8 +931,6 @@ function renderShell() {
 						: renderWaiter();
 	const labels = {
 		waiter: "Waiter",
-		bar: "Bartender",
-		pizza: "Pizzaman",
 		kitchen: "Kitchen",
 		reports: "Reports",
 		staff: "Staff",

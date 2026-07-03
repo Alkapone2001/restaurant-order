@@ -107,14 +107,12 @@ Change these immediately before real use.
 | --- | --- | --- |
 | Admin/manager | `admin` | `admin123` |
 | Kitchen | `kitchen` | `kitchen123` |
-| Bartender | `bartender` | `bar123` |
-| Pizzaman | `pizzaman` | `pizza123` |
 
 ## Main Workflows
 
-- Waiter creates a table order and sends it to the correct preparation stations.
-- Products are assigned to fixed menu categories. Pizza routes to the pizzaman dashboard, drinks and coctails route to the bartender dashboard, and all other food categories route to the kitchen dashboard.
-- Kitchen, bartender, and pizzaman each confirm, prepare, and mark their assigned items done.
+- Waiter creates a table order and sends it to the kitchen.
+- Every product routes to the kitchen dashboard.
+- Kitchen confirms, prepares, and marks the order done.
 - Waiter closes done orders as paid with payment method, discount, and tip.
 - Admin views daily reports, voids, payment-method totals, and waiter totals.
 - Admin manages products in the Menu tab.
