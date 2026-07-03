@@ -41,6 +41,41 @@ npm start
 
 The first request will create the database tables and seed the default users/products.
 
+## Separate Restaurant Deployment
+
+To deploy this branch for another restaurant without affecting the existing Vercel app, use a separate Vercel project and a separate Postgres database. Do not reuse the existing `.vercel/project.json` project link.
+
+```powershell
+# From this repository folder, remove the local link to the old Vercel project.
+Remove-Item -Recurse -Force .vercel
+
+# Install the Vercel CLI if needed, then create/link a new project.
+npm i -g vercel
+vercel login
+vercel link
+```
+
+When `vercel link` asks whether to link to an existing project, choose `N` and give the new project a different name, for example `restaurant-order-new-restaurant`.
+
+Create a new database for the new restaurant, then set these environment variables on the new Vercel project only:
+
+```bash
+DATABASE_URL=postgres://user:password@host:5432/new_restaurant_database
+RESTAURANT_NAME=New Restaurant Name
+PGSSL=true
+VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_KEY=
+VAPID_SUBJECT=mailto:admin@example.com
+```
+
+Then deploy only to the new Vercel project:
+
+```powershell
+vercel --prod
+```
+
+The old deployment remains unaffected as long as it keeps its original Vercel project and database environment variables. This app creates tables and seeds the restaurant name only in the database connected to the project receiving the request.
+
 ## Migrate Existing JSON Data
 
 If you already have data in `data/store.json`, set `DATABASE_URL` and run:
@@ -85,6 +120,7 @@ DATABASE_URL_UNPOOLED=postgres://user:password@host:5432/database
 POSTGRES_URL=postgres://user:password@host:5432/database
 POSTGRES_URL_NON_POOLING=postgres://user:password@host:5432/database
 POSTGRES_PRISMA_URL=postgres://user:password@host:5432/database
+RESTAURANT_NAME=Restaurant Orders
 PGSSL=true
 PORT=3000
 VAPID_PUBLIC_KEY=
@@ -93,5 +129,7 @@ VAPID_SUBJECT=mailto:admin@example.com
 ```
 
 The app accepts `DATABASE_URL`, `DATABASE_URL_UNPOOLED`, `POSTGRES_URL`, `POSTGRES_PRISMA_URL`, `POSTGRES_URL_NON_POOLING`, or `POSTGRES_URL_NO_SSL`. Prefer the pooled `DATABASE_URL`/`POSTGRES_URL` on Vercel. Set `PGSSL=false` only for local Postgres instances that do not use SSL.
+
+`RESTAURANT_NAME` is used when a fresh database is seeded and on the public login screen. Existing databases keep the name already stored in the `settings` table.
 
 `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` are required for background push notifications. Set them in Vercel environment variables, not in committed files.

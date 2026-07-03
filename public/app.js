@@ -2,6 +2,7 @@ const state = {
 	token: localStorage.getItem("restaurant_token") || "",
 	me: null,
 	settings: null,
+	publicSettings: { restaurantName: "Restaurant Orders" },
 	users: [],
 	products: [],
 	orders: [],
@@ -77,6 +78,12 @@ function escapeHtml(value) {
 		.replace(/>/g, "&gt;")
 		.replace(/"/g, "&quot;")
 		.replace(/'/g, "&#039;");
+}
+
+function appName() {
+	return (state.settings && state.settings.restaurantName)
+		|| (state.publicSettings && state.publicSettings.restaurantName)
+		|| "Restaurant Orders";
 }
 
 function toast(message) {
@@ -262,6 +269,16 @@ async function api(path, options) {
 	return data;
 }
 
+async function loadPublicSettings() {
+	try {
+		const settings = await api("/api/public-settings");
+		state.publicSettings = settings;
+		document.title = appName();
+	} catch (error) {
+		state.publicSettings = { restaurantName: "Restaurant Orders" };
+	}
+}
+
 function allowedViews() {
 	if (!state.me) return [];
 	if (state.me.role === "admin")
@@ -288,6 +305,7 @@ async function bootstrap() {
 		const data = await api("/api/bootstrap");
 		state.me = data.me;
 		state.settings = data.settings;
+		document.title = appName();
 		state.users = data.users || [];
 		state.products = data.products;
 		state.orders = data.orders;
@@ -722,7 +740,7 @@ function renderLogin() {
 	return `
     <main class="login-screen">
       <section class="login-card">
-        <div class="brand big"><div class="brand-mark">RO</div><div><h1>Restaurant Orders</h1><span>Secure staff access</span></div></div>
+        <div class="brand big"><div class="brand-mark">RO</div><div><h1>${escapeHtml(appName())}</h1><span>Secure staff access</span></div></div>
         <div class="field"><label>Username</label><input class="input" data-action="login-username" value="${escapeHtml(state.login.username)}"></div>
         <div class="field"><label>Password</label><input class="input" type="password" data-action="login-password" value="${escapeHtml(state.login.password)}"></div>
         <button class="primary" data-action="login">Log in</button>
@@ -933,7 +951,7 @@ function renderShell() {
 	return `
     <div class="app-shell">
       <header class="topbar">
-        <div class="brand"><div class="brand-mark">RO</div><div><h1>${escapeHtml((state.settings && state.settings.restaurantName) || "Restaurant Orders")}</h1><span>${escapeHtml(state.me.name)} - ${escapeHtml(state.me.role)}</span></div></div>
+        <div class="brand"><div class="brand-mark">RO</div><div><h1>${escapeHtml(appName())}</h1><span>${escapeHtml(state.me.name)} - ${escapeHtml(state.me.role)}</span></div></div>
         <nav class="tabs">${allowedViews()
 					.map(
 						(view) =>
@@ -1071,7 +1089,12 @@ app.addEventListener("change", async (event) => {
 	}
 });
 
-bootstrap();
+async function start() {
+	await loadPublicSettings();
+	await bootstrap();
+}
+
+start();
 setInterval(async () => {
 	if (!state.me) return;
 	await refreshOrders(true);
