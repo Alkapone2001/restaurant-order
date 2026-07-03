@@ -43,7 +43,14 @@ The first request will create the database tables and seed the default users/pro
 
 ## Separate Restaurant Deployment
 
-To deploy this branch for another restaurant without affecting the existing Vercel app, use a separate Vercel project and a separate Postgres database. Do not reuse the existing `.vercel/project.json` project link.
+Use this setup when one GitHub repo serves multiple restaurants:
+
+- The existing Vercel project stays connected to `main`/`master` and keeps its current database.
+- The new restaurant gets a different Vercel project connected to the `lidhja` branch.
+- The new Vercel project must use a different Postgres database.
+- Changes on `lidhja` will not affect the existing deployment unless they are merged into `main`/`master`.
+
+Do not reuse the existing `.vercel/project.json` project link for the `lidhja` deployment.
 
 ```powershell
 # From this repository folder, remove the local link to the old Vercel project.
@@ -55,7 +62,9 @@ vercel login
 vercel link
 ```
 
-When `vercel link` asks whether to link to an existing project, choose `N` and give the new project a different name, for example `restaurant-order-new-restaurant`.
+When `vercel link` asks whether to link to an existing project, choose `N` and give the new project a different name, for example `restaurant-order-lidhja`.
+
+If using the Vercel dashboard instead of the CLI, import the same GitHub repository as a new Vercel project and set the new project's Production Branch to `lidhja`. Leave the existing Vercel project pointed at `main`/`master`.
 
 Create a new database for the new restaurant, then set these environment variables on the new Vercel project only:
 
