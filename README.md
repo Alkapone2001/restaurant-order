@@ -105,7 +105,7 @@ Change these immediately before real use.
 
 | Role | Username | Password |
 | --- | --- | --- |
-| Admin/manager | `admin` | `admin123` |
+| Admin/manager | `albert` | `shefi123` |
 | Kitchen | `kitchen` | `kitchen123` |
 
 ## Main Workflows
