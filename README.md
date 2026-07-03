@@ -61,7 +61,7 @@ Change these immediately before real use.
 
 | Role | Username | Password |
 | --- | --- | --- |
-| Admin/manager | `admin` | `admin123` |
+| Admin/manager | `valon` | `admin123` |
 | Kitchen | `kitchen` | `kitchen123` |
 | Bartender | `bartender` | `bar123` |
 | Pizzaman | `pizzaman` | `pizza123` |
