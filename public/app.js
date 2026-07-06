@@ -362,6 +362,10 @@ async function loadAudit() {
 	state.audit = await api("/api/audit");
 }
 
+function shouldHoldWaiterRender() {
+	return state.view === "waiter" && Boolean(state.category);
+}
+
 function categories() {
 	return ["", "all"].concat(
 		Array.from(
@@ -1076,5 +1080,6 @@ setInterval(async () => {
 	if (!state.me) return;
 	await refreshOrders(true);
 	if (state.view === "reports") await loadReport();
+	if (shouldHoldWaiterRender()) return;
 	render();
 }, 4000);
