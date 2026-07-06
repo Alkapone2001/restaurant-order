@@ -82,7 +82,7 @@ const categoryLabels = {
 function money(value) {
 	return new Intl.NumberFormat("en-US", {
 		style: "currency",
-		currency: (state.settings && state.settings.currency) || "EUR",
+		currency: (state.settings && state.settings.currency) || "LEK",
 	}).format(Number(value || 0));
 }
 
