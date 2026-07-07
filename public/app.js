@@ -362,8 +362,8 @@ async function loadAudit() {
 	state.audit = await api("/api/audit");
 }
 
-function shouldHoldWaiterRender() {
-	return state.view === "waiter" && Boolean(state.category);
+function shouldPatchWaiterOrders() {
+	return state.view === "waiter";
 }
 
 function categories() {
@@ -742,6 +742,19 @@ function renderLogin() {
   `;
 }
 
+function renderWaiterActiveOrders() {
+	return activeOrders()
+		.map((order) => orderCard(order, "waiter"))
+		.join("") || `<p class="empty">No active orders.</p>`;
+}
+
+function patchWaiterActiveOrders() {
+	const list = app.querySelector("[data-active-orders]");
+	if (!list) return false;
+	list.innerHTML = renderWaiterActiveOrders();
+	return true;
+}
+
 function renderWaiter() {
 	const products = menuProducts(false)
 		.map(
@@ -787,11 +800,7 @@ function renderWaiter() {
       <aside class="panel"><div class="panel-header"><div><h2>Ticket</h2><p>${state.cart.length} item${state.cart.length === 1 ? "" : "s"}</p></div></div>
         <div class="panel-body"><div class="cart-list">${cart || `<p class="empty">Tap products to add them.</p>`}</div><div class="cart-footer"><div class="total-row"><span>Total</span><span>${money(cartTotal())}</span></div><button class="primary" data-action="send-order" ${state.cart.length ? "" : "disabled"}>Send order</button></div></div>
       </aside>
-      <section class="panel span"><div class="panel-header"><div><h2>My active orders</h2><p>Close paid orders only after every required station marks its part done.</p></div></div><div class="panel-body"><div class="order-list">${
-				activeOrders()
-					.map((order) => orderCard(order, "waiter"))
-					.join("") || `<p class="empty">No active orders.</p>`
-			}</div></div></section>
+      <section class="panel span"><div class="panel-header"><div><h2>My active orders</h2><p>Close paid orders only after every required station marks its part done.</p></div></div><div class="panel-body"><div class="order-list" data-active-orders>${renderWaiterActiveOrders()}</div></div></section>
     </div>
   `;
 }
@@ -1085,6 +1094,9 @@ setInterval(async () => {
 	if (!state.me) return;
 	await refreshOrders(true);
 	if (state.view === "reports") await loadReport();
-	if (shouldHoldWaiterRender()) return;
+	if (shouldPatchWaiterOrders()) {
+		if (!patchWaiterActiveOrders()) render();
+		return;
+	}
 	render();
 }, 4000);
