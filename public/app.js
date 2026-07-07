@@ -650,13 +650,17 @@ function closedOrders() {
 	return state.orders.filter((order) => order.paymentStatus !== "open");
 }
 
+function isAutoPizzaBrut(item) {
+	return item && item.productId === "auto_pizza_brut";
+}
+
 function orderCard(order, context) {
 	const status = order.paymentStatus === "paid" ? "paid" : order.status;
 	const station = context && context.indexOf("station:") === 0 ? context.split(":")[1] : "";
 	const stationContext = Boolean(station);
 	const displayItems = station
 		? order.items.filter((item) => item.station === station)
-		: order.items;
+		: order.items.filter((item) => !isAutoPizzaBrut(item));
 	const items = displayItems
 		.map(
 			(item) => `
