@@ -658,8 +658,9 @@ function orderCard(order, context) {
 	const status = order.paymentStatus === "paid" ? "paid" : order.status;
 	const station = context && context.indexOf("station:") === 0 ? context.split(":")[1] : "";
 	const stationContext = Boolean(station);
+	const stationStatus = stationContext && order.stationStatuses ? order.stationStatuses[station] : null;
 	const displayItems = station
-		? order.items.filter((item) => item.station === station)
+		? order.items.filter((item) => item.station === station && (!stationStatus || !stationStatus.batchId || item.batchId === stationStatus.batchId))
 		: order.items.filter((item) => !isAutoPizzaBrut(item));
 	const items = displayItems
 		.map(
