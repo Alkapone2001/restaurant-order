@@ -486,6 +486,20 @@ button:disabled {
   color: var(--muted);
 }
 
+.line-items .edit-order-line {
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) 76px 96px minmax(140px, 1fr) auto;
+  align-items: center;
+}
+
+.edit-order-line.muted-row {
+  opacity: 0.62;
+}
+
+.edit-note {
+  min-width: 0;
+}
+
 .station-card-body .line-items {
   gap: 12px;
 }
@@ -705,5 +719,14 @@ button:disabled {
   .menu-tools,
   .product-grid {
     grid-template-columns: 1fr;
+  }
+
+  .line-items .edit-order-line {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .line-items .edit-order-line span,
+  .line-items .edit-order-line .edit-note {
+    grid-column: 1 / -1;
   }
 }

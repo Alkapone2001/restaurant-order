@@ -31,6 +31,7 @@ const state = {
 		sort: 999,
 	},
 	waiterForm: { id: "", name: "", username: "", password: "", active: true },
+	orderEdits: {},
 	closeDay: { countedCash: "", note: "" },
 	toast: "",
 	orderSnapshot: {},
@@ -491,6 +492,43 @@ async function cancelOrder(orderId) {
 	}
 }
 
+function beginEditOrder(orderId) {
+	const order = state.orders.find((item) => item.id === orderId);
+	if (!order || !state.me || state.me.role !== "admin" || order.paymentStatus !== "open") return;
+	state.orderEdits[orderId] = {
+		table: order.table,
+		notes: order.notes || "",
+		items: order.items.map((item) => ({
+			quantity: item.quantity,
+			price: item.price,
+			note: item.note || "",
+			removed: false,
+		})),
+	};
+	render();
+}
+
+function cancelEditOrder(orderId) {
+	delete state.orderEdits[orderId];
+	render();
+}
+
+async function saveEditOrder(orderId) {
+	const edit = state.orderEdits[orderId];
+	if (!edit) return;
+	try {
+		const order = await api(`/api/orders/${orderId}`, {
+			method: "PATCH",
+			body: JSON.stringify(edit),
+		});
+		delete state.orderEdits[orderId];
+		replaceOrder(order);
+		toast(`Order #${order.number} updated`);
+	} catch (error) {
+		toast(error.message);
+	}
+}
+
 function replaceOrder(order) {
 	state.orders = state.orders.map((item) =>
 		item.id === order.id ? order : item,
@@ -654,15 +692,37 @@ function isAutoPizzaBrut(item) {
 	return item && item.productId === "auto_pizza_brut";
 }
 
+function canEditOrder(order, context) {
+	return state.me && state.me.role === "admin" && context === "waiter" && order.paymentStatus === "open";
+}
+
+function renderOrderEditItems(order, edit) {
+	return order.items
+		.map((item, index) => {
+			const row = edit.items[index] || {};
+			return `
+    <li class="edit-order-line ${row.removed ? "muted-row" : ""}">
+      <span><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(stationLabels[item.station] || item.station || "")}</small></span>
+      <input class="input compact" type="number" min="1" max="99" step="1" data-action="edit-order-quantity" data-id="${order.id}" data-index="${index}" value="${escapeHtml(row.quantity)}" ${row.removed ? "disabled" : ""}>
+      <input class="input compact" type="number" min="0" step="0.01" data-action="edit-order-price" data-id="${order.id}" data-index="${index}" value="${escapeHtml(row.price)}" ${row.removed ? "disabled" : ""}>
+      <input class="input compact edit-note" data-action="edit-order-note" data-id="${order.id}" data-index="${index}" value="${escapeHtml(row.note)}" placeholder="Note" ${row.removed ? "disabled" : ""}>
+      <button class="small-action ${row.removed ? "" : "danger"}" data-action="toggle-edit-item" data-id="${order.id}" data-index="${index}">${row.removed ? "Undo" : "Remove"}</button>
+    </li>
+  `;
+		})
+		.join("");
+}
+
 function orderCard(order, context) {
 	const status = order.paymentStatus === "paid" ? "paid" : order.status;
 	const station = context && context.indexOf("station:") === 0 ? context.split(":")[1] : "";
 	const stationContext = Boolean(station);
 	const stationStatus = stationContext && order.stationStatuses ? order.stationStatuses[station] : null;
+	const edit = canEditOrder(order, context) ? state.orderEdits[order.id] : null;
 	const displayItems = station
 		? order.items.filter((item) => item.station === station && (!stationStatus || !stationStatus.batchId || item.batchId === stationStatus.batchId))
 		: order.items.filter((item) => !isAutoPizzaBrut(item));
-	const items = displayItems
+	const items = edit ? renderOrderEditItems(order, edit) : displayItems
 		.map(
 			(item) => `
     <li>
@@ -682,7 +742,7 @@ function orderCard(order, context) {
     <article class="order-card ${order.paymentStatus !== "open" ? "closed" : ""}">
       <div class="order-card-header">
         <div>
-          <h3>#${order.number} - ${escapeHtml(order.table)}</h3>
+          <h3>#${order.number} - ${edit ? `<input class="input compact" data-action="edit-order-table" data-id="${order.id}" value="${escapeHtml(edit.table)}">` : escapeHtml(order.table)}</h3>
           <p>${escapeHtml(order.waiterName)} - ${new Date(order.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>
         </div>
         <span class="status ${status}">${statusLabels[status] || status}</span>
@@ -690,7 +750,7 @@ function orderCard(order, context) {
       <div class="order-card-body ${stationContext ? "station-card-body" : ""}">
         ${order.paymentStatus === "open" ? `<div class="station-summary">${stationSummary}</div>` : ""}
         <ul class="line-items">${items}</ul>
-        ${order.notes ? `<p class="${stationContext ? "station-order-note" : ""}"><strong>Note:</strong> ${escapeHtml(order.notes)}</p>` : ""}
+        ${edit ? `<textarea class="textarea" data-action="edit-order-notes" data-id="${order.id}" placeholder="Order note">${escapeHtml(edit.notes)}</textarea>` : order.notes ? `<p class="${stationContext ? "station-order-note" : ""}"><strong>Note:</strong> ${escapeHtml(order.notes)}</p>` : ""}
         ${!stationContext && order.discount ? `<div class="line"><span>Discount</span><strong>-${money(order.discount)}</strong></div>` : ""}
         ${stationContext ? "" : `<div class="total-row"><span>Total</span><span>${money(order.total)}</span></div>`}
         ${!stationContext && order.payment ? `<p>Payment: ${escapeHtml(order.payment.method)}${order.payment.tip ? `, tip ${money(order.payment.tip)}` : ""}</p>` : ""}
@@ -703,6 +763,15 @@ function orderCard(order, context) {
 
 function orderActions(order, context) {
 	if (order.paymentStatus !== "open") return "";
+	const edit = state.orderEdits[order.id];
+	if (canEditOrder(order, context) && edit) {
+		return `
+    <div class="order-actions">
+      <button class="small-action ready" data-action="save-order-edit" data-id="${order.id}">Save edits</button>
+      <button class="small-action" data-action="cancel-order-edit" data-id="${order.id}">Cancel edit</button>
+    </div>
+  `;
+	}
 	if (context && context.indexOf("station:") === 0) {
 		const station = context.split(":")[1];
 		const stationStatus = order.stationStatuses && order.stationStatuses[station] ? order.stationStatuses[station].status : "";
@@ -716,6 +785,7 @@ function orderActions(order, context) {
 	}
 	return `
     <div class="payment-box">
+      ${canEditOrder(order, context) ? `<button class="small-action" data-action="edit-order" data-id="${order.id}">Edit order</button>` : ""}
       <select class="select compact" data-action="pay-method">
         ${["cash", "card", "mixed", "other"].map((method) => `<option value="${method}" ${state.payment.method === method ? "selected" : ""}>${method}</option>`).join("")}
       </select>
@@ -749,6 +819,7 @@ function renderWaiterActiveOrders() {
 }
 
 function patchWaiterActiveOrders() {
+	if (Object.keys(state.orderEdits).length) return true;
 	const list = app.querySelector("[data-active-orders]");
 	if (!list) return false;
 	list.innerHTML = renderWaiterActiveOrders();
@@ -1024,6 +1095,15 @@ app.addEventListener("click", async (event) => {
 	if (action === "status") setStatus(target.dataset.id, target.dataset.status, target.dataset.station);
 	if (action === "paid") payOrder(target.dataset.id);
 	if (action === "cancel") cancelOrder(target.dataset.id);
+	if (action === "edit-order") beginEditOrder(target.dataset.id);
+	if (action === "save-order-edit") saveEditOrder(target.dataset.id);
+	if (action === "cancel-order-edit") cancelEditOrder(target.dataset.id);
+	if (action === "toggle-edit-item") {
+		const edit = state.orderEdits[target.dataset.id];
+		const item = edit && edit.items[Number(target.dataset.index)];
+		if (item) item.removed = !item.removed;
+		render();
+	}
 	if (action === "save-product") saveProduct();
 	if (action === "edit-product") editProduct(target.dataset.id);
 	if (action === "delete-product") deleteProduct(target.dataset.id);
@@ -1067,6 +1147,11 @@ app.addEventListener("input", (event) => {
 	if (action === "waiter-name") state.waiterForm.name = t.value;
 	if (action === "waiter-username") state.waiterForm.username = t.value;
 	if (action === "waiter-password") state.waiterForm.password = t.value;
+	if (action === "edit-order-table" && state.orderEdits[t.dataset.id]) state.orderEdits[t.dataset.id].table = t.value;
+	if (action === "edit-order-notes" && state.orderEdits[t.dataset.id]) state.orderEdits[t.dataset.id].notes = t.value;
+	if (action === "edit-order-quantity" && state.orderEdits[t.dataset.id]) state.orderEdits[t.dataset.id].items[Number(t.dataset.index)].quantity = t.value;
+	if (action === "edit-order-price" && state.orderEdits[t.dataset.id]) state.orderEdits[t.dataset.id].items[Number(t.dataset.index)].price = t.value;
+	if (action === "edit-order-note" && state.orderEdits[t.dataset.id]) state.orderEdits[t.dataset.id].items[Number(t.dataset.index)].note = t.value;
 	if (action === "close-cash") state.closeDay.countedCash = t.value;
 	if (action === "close-note") state.closeDay.note = t.value;
 });
