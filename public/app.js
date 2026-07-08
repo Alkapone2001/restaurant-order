@@ -14,7 +14,7 @@ const state = {
 	cart: [],
 	search: "",
 	category: "",
-	headWaiterFilter: "all",
+	headWaiterFilter: "mine",
 	reportDate: new Date().toISOString().slice(0, 10),
 	payment: {
 		method: "cash",
@@ -694,7 +694,8 @@ function activeOrders() {
 
 function visibleActiveOrders() {
 	const orders = activeOrders();
-	if (!isHeadWaiter() || state.headWaiterFilter === "all") return orders;
+	if (!isHeadWaiter()) return orders;
+	if (state.headWaiterFilter === "mine") return orders.filter((order) => order.waiterId === state.me.id);
 	return orders.filter((order) => order.waiterId === state.headWaiterFilter);
 }
 
@@ -710,6 +711,7 @@ function waiterNameFor(id, fallback) {
 function waiterOptionsForHeadWaiter() {
 	const byId = new Map();
 	activeOrders().forEach((order) => {
+		if (order.waiterId === state.me.id) return;
 		byId.set(order.waiterId, waiterNameFor(order.waiterId, order.waiterName));
 	});
 	return Array.from(byId.entries()).sort((a, b) => a[1].localeCompare(b[1]));
@@ -873,7 +875,7 @@ function renderWaiterActiveOrders() {
     <div class="field compact-field">
       <label>Waiter</label>
       <select class="select compact" data-action="head-waiter-filter">
-        <option value="all" ${state.headWaiterFilter === "all" ? "selected" : ""}>All waiters</option>
+        <option value="mine" ${state.headWaiterFilter === "mine" ? "selected" : ""}>Porosit e mia</option>
         ${waiterOptions.map(([id, name]) => `<option value="${escapeHtml(id)}" ${state.headWaiterFilter === id ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}
       </select>
     </div>
