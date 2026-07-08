@@ -14,6 +14,7 @@ const state = {
 	cart: [],
 	search: "",
 	category: "",
+	headWaiterFilter: "all",
 	reportDate: new Date().toISOString().slice(0, 10),
 	payment: {
 		method: "cash",
@@ -278,6 +279,13 @@ function defaultViewForRole(role) {
 	if (role === "bartender") return "bar";
 	if (role === "pizzaman") return "pizza";
 	return "waiter";
+}
+
+function isHeadWaiter() {
+	if (!state.me || state.me.role !== "waiter") return false;
+	const username = String(state.me.username || "").trim().toLowerCase();
+	const firstName = String(state.me.name || "").trim().toLowerCase().split(/\s+/)[0];
+	return username === "arben" || firstName === "arben";
 }
 
 async function bootstrap() {
@@ -684,8 +692,49 @@ function activeOrders() {
 	return state.orders.filter((order) => order.paymentStatus === "open");
 }
 
+function visibleActiveOrders() {
+	const orders = activeOrders();
+	if (!isHeadWaiter() || state.headWaiterFilter === "all") return orders;
+	return orders.filter((order) => order.waiterId === state.headWaiterFilter);
+}
+
 function closedOrders() {
 	return state.orders.filter((order) => order.paymentStatus !== "open");
+}
+
+function waiterNameFor(id, fallback) {
+	const waiter = state.users.find((user) => user.id === id);
+	return waiter ? waiter.name : fallback;
+}
+
+function waiterOptionsForHeadWaiter() {
+	const byId = new Map();
+	activeOrders().forEach((order) => {
+		byId.set(order.waiterId, waiterNameFor(order.waiterId, order.waiterName));
+	});
+	return Array.from(byId.entries()).sort((a, b) => a[1].localeCompare(b[1]));
+}
+
+function groupedActiveOrders() {
+	return visibleActiveOrders().reduce((groups, order) => {
+		const key = order.waiterId || "unknown";
+		if (!groups[key]) groups[key] = { waiterId: key, waiterName: waiterNameFor(order.waiterId, order.waiterName), orders: [] };
+		groups[key].orders.push(order);
+		return groups;
+	}, {});
+}
+
+function canPayOrder(order) {
+	if (!state.me || order.paymentStatus !== "open" || order.status !== "done") return false;
+	if (state.me.role === "admin") return true;
+	if (state.me.role !== "waiter") return false;
+	return order.waiterId === state.me.id || isHeadWaiter();
+}
+
+function canCancelOrder(order) {
+	if (!state.me || order.paymentStatus !== "open") return false;
+	if (state.me.role === "admin") return true;
+	return state.me.role === "waiter" && order.waiterId === state.me.id;
 }
 
 function isAutoPizzaBrut(item) {
@@ -791,8 +840,8 @@ function orderActions(order, context) {
       </select>
       <input class="input compact" type="number" step="0.01" data-action="pay-discount" value="${escapeHtml(state.payment.discount)}" placeholder="Discount">
       <input class="input compact" type="number" step="0.01" data-action="pay-tip" value="${escapeHtml(state.payment.tip)}" placeholder="Tip">
-      <button class="small-action ready" data-action="paid" data-id="${order.id}" ${order.status !== "done" ? "disabled" : ""}>Paid</button>
-      <button class="small-action danger" data-action="cancel" data-id="${order.id}">Void</button>
+      <button class="small-action ready" data-action="paid" data-id="${order.id}" ${canPayOrder(order) ? "" : "disabled"}>Paid</button>
+      ${canCancelOrder(order) ? `<button class="small-action danger" data-action="cancel" data-id="${order.id}">Void</button>` : ""}
     </div>
   `;
 }
@@ -813,9 +862,32 @@ function renderLogin() {
 }
 
 function renderWaiterActiveOrders() {
-	return activeOrders()
-		.map((order) => orderCard(order, "waiter"))
-		.join("") || `<p class="empty">No active orders.</p>`;
+	if (!isHeadWaiter()) {
+		return activeOrders()
+			.map((order) => orderCard(order, "waiter"))
+			.join("") || `<p class="empty">No active orders.</p>`;
+	}
+	const groups = groupedActiveOrders();
+	const waiterOptions = waiterOptionsForHeadWaiter();
+	const selector = `
+    <div class="field compact-field">
+      <label>Waiter</label>
+      <select class="select compact" data-action="head-waiter-filter">
+        <option value="all" ${state.headWaiterFilter === "all" ? "selected" : ""}>All waiters</option>
+        ${waiterOptions.map(([id, name]) => `<option value="${escapeHtml(id)}" ${state.headWaiterFilter === id ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}
+      </select>
+    </div>
+  `;
+	const sections = Object.values(groups)
+		.sort((a, b) => a.waiterName.localeCompare(b.waiterName))
+		.map((group) => `
+      <div class="waiter-order-group">
+        <h3>${escapeHtml(group.waiterName)}</h3>
+        ${group.orders.map((order) => orderCard(order, "waiter")).join("")}
+      </div>
+    `)
+		.join("");
+	return selector + (sections || `<p class="empty">No active orders.</p>`);
 }
 
 function patchWaiterActiveOrders() {
@@ -1167,6 +1239,10 @@ app.addEventListener("change", async (event) => {
 	if (action === "product-available") state.productForm.available = t.checked;
 	if (action === "product-category") state.productForm.category = t.value;
 	if (action === "waiter-active") state.waiterForm.active = t.checked;
+	if (action === "head-waiter-filter") {
+		state.headWaiterFilter = t.value;
+		render();
+	}
 	if (action === "report-date") {
 		state.reportDate = t.value;
 		await loadReport();

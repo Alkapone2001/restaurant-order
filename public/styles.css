@@ -537,6 +537,22 @@ button:disabled {
   gap: 8px;
 }
 
+.compact-field {
+  max-width: 260px;
+  margin-bottom: 10px;
+}
+
+.waiter-order-group {
+  display: grid;
+  gap: 10px;
+}
+
+.waiter-order-group h3 {
+  margin: 8px 0 0;
+  font-size: 15px;
+  color: var(--muted);
+}
+
 .payment-box {
   display: flex;
   flex-wrap: wrap;
