@@ -500,6 +500,13 @@ button:disabled {
   min-width: 0;
 }
 
+.edit-add-product {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
 .station-card-body .line-items {
   gap: 12px;
 }

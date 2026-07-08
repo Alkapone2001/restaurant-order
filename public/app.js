@@ -51,7 +51,7 @@ const statusLabels = {
 	canceled: "Canceled",
 };
 const statusRank = { sent: 1, received: 2, preparing: 3, done: 4 };
-const stationLabels = { bar: "Bartender", pizza: "Pizzaman", kitchen: "Kitchen" };
+const stationLabels = { bar: "Bartender", pizza: "Pizzaman", kitchen: "Kitchen", manager: "Manager" };
 const productCategories = [
 	"Pizza",
 	"Soups",
@@ -513,6 +513,8 @@ function beginEditOrder(orderId) {
 			note: item.note || "",
 			removed: false,
 		})),
+		addProductId: "",
+		addedItems: [],
 	};
 	render();
 }
@@ -753,7 +755,7 @@ function canEditOrder(order, context) {
 }
 
 function renderOrderEditItems(order, edit) {
-	return order.items
+	const existingItems = order.items
 		.map((item, index) => {
 			const row = edit.items[index] || {};
 			return `
@@ -767,6 +769,30 @@ function renderOrderEditItems(order, edit) {
   `;
 		})
 		.join("");
+	const addedItems = (edit.addedItems || [])
+		.map((item, index) => `
+    <li class="edit-order-line">
+      <span><strong>${escapeHtml(item.name)}</strong><small>Manager</small></span>
+      <input class="input compact" type="number" min="1" max="99" step="1" data-action="edit-added-quantity" data-id="${order.id}" data-index="${index}" value="${escapeHtml(item.quantity)}">
+      <input class="input compact" type="number" min="0" step="0.01" data-action="edit-added-price" data-id="${order.id}" data-index="${index}" value="${escapeHtml(item.price)}">
+      <input class="input compact edit-note" data-action="edit-added-note" data-id="${order.id}" data-index="${index}" value="${escapeHtml(item.note)}" placeholder="Note">
+      <button class="small-action danger" data-action="remove-added-item" data-id="${order.id}" data-index="${index}">Remove</button>
+    </li>
+  `)
+		.join("");
+	return existingItems + addedItems;
+}
+
+function renderOrderEditProductPicker(order, edit) {
+	return `
+    <div class="edit-add-product">
+      <select class="select compact" data-action="edit-add-product-select" data-id="${order.id}">
+        <option value="">Add product</option>
+        ${state.products.map((product) => `<option value="${escapeHtml(product.id)}" ${edit.addProductId === product.id ? "selected" : ""}>${escapeHtml(product.name)} - ${money(product.price)}</option>`).join("")}
+      </select>
+      <button class="small-action" data-action="add-product-to-edit" data-id="${order.id}" ${edit.addProductId ? "" : "disabled"}>Add</button>
+    </div>
+  `;
 }
 
 function orderCard(order, context) {
@@ -806,6 +832,7 @@ function orderCard(order, context) {
       <div class="order-card-body ${stationContext ? "station-card-body" : ""}">
         ${order.paymentStatus === "open" ? `<div class="station-summary">${stationSummary}</div>` : ""}
         <ul class="line-items">${items}</ul>
+        ${edit ? renderOrderEditProductPicker(order, edit) : ""}
         ${edit ? `<textarea class="textarea" data-action="edit-order-notes" data-id="${order.id}" placeholder="Order note">${escapeHtml(edit.notes)}</textarea>` : order.notes ? `<p class="${stationContext ? "station-order-note" : ""}"><strong>Note:</strong> ${escapeHtml(order.notes)}</p>` : ""}
         ${!stationContext && order.discount ? `<div class="line"><span>Discount</span><strong>-${money(order.discount)}</strong></div>` : ""}
         ${stationContext ? "" : `<div class="total-row"><span>Total</span><span>${money(order.total)}</span></div>`}
@@ -1187,6 +1214,28 @@ app.addEventListener("click", async (event) => {
 		if (item) item.removed = !item.removed;
 		render();
 	}
+	if (action === "add-product-to-edit") {
+		const edit = state.orderEdits[target.dataset.id];
+		const product = edit && state.products.find((item) => item.id === edit.addProductId);
+		if (edit && product) {
+			edit.addedItems.push({
+				productId: product.id,
+				name: product.name,
+				quantity: 1,
+				price: product.price,
+				note: "",
+			});
+			edit.addProductId = "";
+			render();
+		}
+	}
+	if (action === "remove-added-item") {
+		const edit = state.orderEdits[target.dataset.id];
+		if (edit) {
+			edit.addedItems.splice(Number(target.dataset.index), 1);
+			render();
+		}
+	}
 	if (action === "save-product") saveProduct();
 	if (action === "edit-product") editProduct(target.dataset.id);
 	if (action === "delete-product") deleteProduct(target.dataset.id);
@@ -1235,6 +1284,9 @@ app.addEventListener("input", (event) => {
 	if (action === "edit-order-quantity" && state.orderEdits[t.dataset.id]) state.orderEdits[t.dataset.id].items[Number(t.dataset.index)].quantity = t.value;
 	if (action === "edit-order-price" && state.orderEdits[t.dataset.id]) state.orderEdits[t.dataset.id].items[Number(t.dataset.index)].price = t.value;
 	if (action === "edit-order-note" && state.orderEdits[t.dataset.id]) state.orderEdits[t.dataset.id].items[Number(t.dataset.index)].note = t.value;
+	if (action === "edit-added-quantity" && state.orderEdits[t.dataset.id]) state.orderEdits[t.dataset.id].addedItems[Number(t.dataset.index)].quantity = t.value;
+	if (action === "edit-added-price" && state.orderEdits[t.dataset.id]) state.orderEdits[t.dataset.id].addedItems[Number(t.dataset.index)].price = t.value;
+	if (action === "edit-added-note" && state.orderEdits[t.dataset.id]) state.orderEdits[t.dataset.id].addedItems[Number(t.dataset.index)].note = t.value;
 	if (action === "close-cash") state.closeDay.countedCash = t.value;
 	if (action === "close-note") state.closeDay.note = t.value;
 });
@@ -1256,6 +1308,10 @@ app.addEventListener("change", async (event) => {
 	}
 	if (action === "manager-waiter-filter") {
 		state.managerWaiterFilter = t.value;
+		render();
+	}
+	if (action === "edit-add-product-select" && state.orderEdits[t.dataset.id]) {
+		state.orderEdits[t.dataset.id].addProductId = t.value;
 		render();
 	}
 	if (action === "report-date") {
