@@ -5,11 +5,13 @@ const state = {
 	users: [],
 	products: [],
 	orders: [],
+	tableLocks: [],
 	audit: [],
 	report: null,
 	view: "waiter",
 	login: { username: "", password: "" },
 	table: "",
+	selectedOrderId: "",
 	takeAway: false,
 	takeAwayNewOrder: false,
 	orderNotes: "",
@@ -54,6 +56,11 @@ const statusLabels = {
 };
 const statusRank = { sent: 1, received: 2, preparing: 3, done: 4 };
 const stationLabels = { bar: "Bartender", pizza: "Pizzaman", kitchen: "Kitchen", manager: "Manager" };
+const tableSections = [
+	{ title: "Tables", tables: Array.from({ length: 18 }, (_, index) => String(index + 1)) },
+	{ title: "Terasa", tables: ["Terasa 1", "Terasa 2"] },
+	{ title: "Salla", tables: ["Salla 1", "Salla 2", "Salla 3", "Salla 4"] },
+];
 const productCategories = [
 	"Pizza",
 	"Soups",
@@ -303,6 +310,7 @@ async function bootstrap() {
 		state.users = data.users || [];
 		state.products = data.products;
 		state.orders = data.orders;
+		state.tableLocks = data.tableLocks || [];
 		if (["kitchen", "bartender", "pizzaman"].indexOf(state.me.role) > -1) {
 			state.view = defaultViewForRole(state.me.role);
 		}
@@ -354,10 +362,14 @@ async function logout(callApi = true) {
 async function refreshOrders(silent) {
 	if (!state.token) return;
 	try {
-		const orders = await api("/api/orders");
+		const [orders, tableLocks] = await Promise.all([
+			api("/api/orders"),
+			api("/api/table-locks"),
+		]);
 		if (silent) detectOrderNotifications(orders);
 		else primeOrderSnapshot(orders);
 		state.orders = orders;
+		state.tableLocks = tableLocks;
 		if (!silent) render();
 	} catch (error) {
 		if (!silent) toast(error.message);
@@ -406,6 +418,14 @@ function cartTotal() {
 	}, 0);
 }
 
+function canSendOrder() {
+	if (!state.cart.length) return false;
+	if (state.takeAway) return true;
+	if (!state.table) return false;
+	const lock = tableLock(state.table);
+	return !lock || lock.waiterId === state.me.id;
+}
+
 function addProduct(productId) {
 	const product = state.products.find((item) => item.id === productId);
 	if (!product || product.available === false) return;
@@ -446,7 +466,8 @@ async function sendOrder() {
 			? state.orders.map((item) => (item.id === order.id ? order : item))
 			: [order].concat(state.orders);
 		state.orderSnapshot[order.id] = snapshotOrder(order);
-		if (!state.takeAway) state.table = "";
+		state.selectedOrderId = order.id;
+		state.table = order.table;
 		state.takeAwayNewOrder = false;
 		state.orderNotes = "";
 		state.cart = [];
@@ -701,6 +722,34 @@ function activeOrders() {
 	return state.orders.filter((order) => order.paymentStatus === "open");
 }
 
+function isTakeAwayTable(table) {
+	return String(table || "").trim().toLowerCase() === "me veti";
+}
+
+function tableLock(table) {
+	const normalized = String(table || "").trim().toLowerCase();
+	return state.tableLocks.find((lock) => String(lock.table || "").trim().toLowerCase() === normalized);
+}
+
+function orderForTable(table) {
+	const normalized = String(table || "").trim().toLowerCase();
+	return activeOrders().find((order) => String(order.table || "").trim().toLowerCase() === normalized && order.waiterId === state.me.id);
+}
+
+function selectedActiveOrder() {
+	if (state.selectedOrderId) {
+		const byId = activeOrders().find((order) => order.id === state.selectedOrderId);
+		if (byId) return byId;
+	}
+	if (state.table) return orderForTable(state.table);
+	return null;
+}
+
+function waiterOwnActiveOrders() {
+	if (!state.me) return [];
+	return activeOrders().filter((order) => order.waiterId === state.me.id);
+}
+
 function visibleActiveOrders() {
 	const orders = activeOrders();
 	if (state.me && state.me.role === "admin") {
@@ -901,12 +950,74 @@ function renderLogin() {
   `;
 }
 
+function renderTableSelector() {
+	const sections = tableSections.map((section) => `
+    <div class="table-section">
+      <h3>${escapeHtml(section.title)}</h3>
+      <div class="table-grid">
+        ${section.tables.map((table) => {
+					const lock = tableLock(table);
+					const ownOrder = orderForTable(table);
+					const occupiedByOther = lock && lock.waiterId !== state.me.id;
+					const active = state.table === table && !state.takeAway;
+					const label = /^\d+$/.test(table) ? table : table.replace(" ", "\u00a0");
+					const meta = occupiedByOther ? escapeHtml(lock.waiterName) : ownOrder ? `#${ownOrder.number}` : "";
+					return `
+          <button class="table-button ${active ? "active" : ""} ${ownOrder ? "own" : ""} ${occupiedByOther ? "occupied" : ""}" data-action="select-table" data-table="${escapeHtml(table)}" ${occupiedByOther ? "disabled" : ""}>
+            <strong>${escapeHtml(label)}</strong>
+            ${meta ? `<span>${meta}</span>` : ""}
+          </button>
+        `;
+				}).join("")}
+      </div>
+    </div>
+  `).join("");
+	return `
+    <div data-waiter-table-controls>
+    <div class="take-away-row">
+      <button class="choice-button ${state.takeAway ? "active" : ""}" data-action="toggle-take-away" type="button">Me Veti</button>
+      ${state.takeAway ? `<label class="check"><input type="checkbox" data-action="take-away-new-order" ${state.takeAwayNewOrder ? "checked" : ""}> Separate order</label>` : ""}
+    </div>
+    <div class="table-selector ${state.takeAway ? "muted-row" : ""}" data-table-selector>
+      ${sections}
+    </div>
+    </div>
+  `;
+}
+
+function renderSelectedTableSummary() {
+	if (state.takeAway) {
+		return `<p class="empty">Me Veti selected. New items will go to your open Me Veti order unless Separate order is checked.</p>`;
+	}
+	if (!state.table) return `<p class="empty">Choose a table before sending the order.</p>`;
+	const order = orderForTable(state.table);
+	return order
+		? `<p class="empty">Adding items to your active order #${order.number} for ${escapeHtml(state.table)}.</p>`
+		: `<p class="empty">Starting a new order for ${escapeHtml(state.table)}.</p>`;
+}
+
+function renderActiveTableTiles(orders) {
+	if (!orders.length) return `<p class="empty">No active tables.</p>`;
+	return `<div class="active-table-grid">${orders.map((order) => `
+    <button class="active-table-card ${selectedActiveOrder() && selectedActiveOrder().id === order.id ? "active" : ""}" data-action="select-active-order" data-id="${order.id}">
+      <strong>${escapeHtml(order.table)}</strong>
+      <span>#${order.number} - ${statusLabels[order.status] || order.status}</span>
+      <small>${money(order.total)}</small>
+    </button>
+  `).join("")}</div>`;
+}
+
 function renderWaiterActiveOrders() {
 	const filterEnabled = isHeadWaiter() || (state.me && state.me.role === "admin");
 	if (!filterEnabled) {
-		return activeOrders()
-			.map((order) => orderCard(order, "waiter"))
-			.join("") || `<p class="empty">No active orders.</p>`;
+		const orders = waiterOwnActiveOrders();
+		const selected = selectedActiveOrder();
+		return `
+      ${renderActiveTableTiles(orders)}
+      <div class="selected-order-detail" data-selected-order>
+        ${selected ? orderCard(selected, "waiter") : `<p class="empty">Select one of your active tables to see the order.</p>`}
+      </div>
+    `;
 	}
 	const groups = groupedActiveOrders();
 	const waiterOptions = waiterOptionsForHeadWaiter();
@@ -936,10 +1047,29 @@ function renderWaiterActiveOrders() {
 
 function patchWaiterActiveOrders() {
 	if (Object.keys(state.orderEdits).length) return true;
+	reconcileWaiterSelection();
+	const controls = app.querySelector("[data-waiter-table-controls]");
+	if (controls) controls.outerHTML = renderTableSelector();
+	const summary = app.querySelector("[data-order-target-summary]");
+	if (summary) summary.innerHTML = renderSelectedTableSummary();
 	const list = app.querySelector("[data-active-orders]");
 	if (!list) return false;
 	list.innerHTML = renderWaiterActiveOrders();
 	return true;
+}
+
+function reconcileWaiterSelection() {
+	if (!state.me) return;
+	if (state.selectedOrderId && !activeOrders().some((order) => order.id === state.selectedOrderId)) {
+		state.selectedOrderId = "";
+	}
+	if (!state.takeAway && state.table) {
+		const lock = tableLock(state.table);
+		if (lock && lock.waiterId !== state.me.id) {
+			state.table = "";
+			state.selectedOrderId = "";
+		}
+	}
 }
 
 function renderWaiter() {
@@ -971,11 +1101,7 @@ function renderWaiter() {
       <section class="panel"><div class="panel-header"><div><h2>New order</h2><p>${escapeHtml(state.me.name)} is taking this order.</p></div></div>
         <div class="panel-body">
           <div class="field-grid">
-            <div class="field">
-              <label>Order type</label>
-              <button class="choice-button ${state.takeAway ? "active" : ""}" data-action="toggle-take-away" type="button">Me Veti</button>
-            </div>
-            <div class="field"><label>Table</label><input class="input" data-action="table" value="${escapeHtml(state.table)}" placeholder="${state.takeAway ? "Me Veti" : "Table 4"}" ${state.takeAway ? "disabled" : ""}></div>
+            <div class="field full"><label>Table</label>${renderTableSelector()}</div>
             <div class="field"><label>Search</label><input class="input" data-action="search" value="${escapeHtml(state.search)}" placeholder="Menu item"></div>
             <div class="field"><label>Category</label><select class="select" data-action="category">${categories()
 							.map(
@@ -983,14 +1109,14 @@ function renderWaiter() {
 									`<option value="${category}" ${state.category === category ? "selected" : ""}>${category === "" ? "Choose category" : category === "all" ? "All categories" : escapeHtml(category)}</option>`,
 							)
 							.join("")}</select></div>
-            ${state.takeAway ? `<label class="check full"><input type="checkbox" data-action="take-away-new-order" ${state.takeAwayNewOrder ? "checked" : ""}> Start as a separate Me Veti order</label>` : ""}
             <div class="field full"><label>Order note</label><textarea class="textarea" data-action="order-notes">${escapeHtml(state.orderNotes)}</textarea></div>
           </div>
+          <div class="order-target-summary" data-order-target-summary>${renderSelectedTableSummary()}</div>
           <div class="product-grid">${products || `<p class="empty">${state.search.trim() || state.category ? "No available products." : "Search or choose a category to show products."}</p>`}</div>
         </div>
       </section>
       <aside class="panel"><div class="panel-header"><div><h2>Ticket</h2><p>${state.cart.length} item${state.cart.length === 1 ? "" : "s"}</p></div></div>
-        <div class="panel-body"><div class="cart-list">${cart || `<p class="empty">Tap products to add them.</p>`}</div><div class="cart-footer"><div class="total-row"><span>Total</span><span>${money(cartTotal())}</span></div><button class="primary" data-action="send-order" ${state.cart.length ? "" : "disabled"}>Send order</button></div></div>
+        <div class="panel-body"><div class="cart-list">${cart || `<p class="empty">Tap products to add them.</p>`}</div><div class="cart-footer"><div class="total-row"><span>Total</span><span>${money(cartTotal())}</span></div><button class="primary" data-action="send-order" ${canSendOrder() ? "" : "disabled"}>Send order</button></div></div>
       </aside>
       <section class="panel span"><div class="panel-header"><div><h2>My active orders</h2><p>Close paid orders only after every required station marks its part done.</p></div></div><div class="panel-body"><div class="order-list" data-active-orders>${renderWaiterActiveOrders()}</div></div></section>
     </div>
@@ -1212,10 +1338,36 @@ app.addEventListener("click", async (event) => {
 	if (action === "add-product") addProduct(target.dataset.id);
 	if (action === "cart-minus") updateCart(target.dataset.id, -1);
 	if (action === "cart-plus") updateCart(target.dataset.id, 1);
+	if (action === "select-table") {
+		const table = target.dataset.table || "";
+		const lock = tableLock(table);
+		if (lock && lock.waiterId !== state.me.id) return;
+		state.takeAway = false;
+		state.takeAwayNewOrder = false;
+		state.table = table;
+		const order = orderForTable(table);
+		state.selectedOrderId = order ? order.id : "";
+		render();
+	}
+	if (action === "select-active-order") {
+		const order = state.orders.find((item) => item.id === target.dataset.id);
+		if (!order) return;
+		state.takeAway = isTakeAwayTable(order.table);
+		state.takeAwayNewOrder = false;
+		state.table = state.takeAway ? "" : order.table;
+		state.selectedOrderId = order.id;
+		render();
+	}
 	if (action === "toggle-take-away") {
 		state.takeAway = !state.takeAway;
-		if (state.takeAway) state.table = "";
-		else state.takeAwayNewOrder = false;
+		if (state.takeAway) {
+			state.table = "";
+			const ownTakeAway = waiterOwnActiveOrders().find((order) => isTakeAwayTable(order.table));
+			state.selectedOrderId = ownTakeAway ? ownTakeAway.id : "";
+		} else {
+			state.takeAwayNewOrder = false;
+			state.selectedOrderId = "";
+		}
 		render();
 	}
 	if (action === "send-order") sendOrder();

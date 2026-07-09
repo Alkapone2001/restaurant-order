@@ -257,6 +257,95 @@ button:disabled {
   border-color: var(--brand);
 }
 
+.take-away-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.table-selector {
+  display: grid;
+  gap: 12px;
+}
+
+.table-section {
+  display: grid;
+  gap: 8px;
+}
+
+.table-section h3 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.table-grid,
+.active-table-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(82px, 1fr));
+  gap: 8px;
+}
+
+.table-button,
+.active-table-card {
+  display: grid;
+  min-height: 58px;
+  gap: 3px;
+  align-content: center;
+  padding: 8px;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  text-align: center;
+}
+
+.table-button strong,
+.active-table-card strong {
+  font-size: 16px;
+}
+
+.table-button span,
+.active-table-card span,
+.active-table-card small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.table-button.active,
+.active-table-card.active {
+  color: #fff;
+  background: var(--brand);
+  border-color: var(--brand);
+}
+
+.table-button.active span,
+.active-table-card.active span,
+.active-table-card.active small {
+  color: #d1fae5;
+}
+
+.table-button.own {
+  border-color: var(--ready);
+}
+
+.table-button.occupied {
+  background: #f1f5f9;
+}
+
+.selected-order-detail {
+  display: grid;
+  gap: 10px;
+}
+
+.order-target-summary {
+  margin: 12px 0;
+}
+
 .input:focus,
 .select:focus,
 .textarea:focus {
