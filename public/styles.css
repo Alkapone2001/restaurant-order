@@ -207,6 +207,10 @@ button:disabled {
   grid-column: 1 / -1;
 }
 
+.check.full {
+  grid-column: 1 / -1;
+}
+
 .field label {
   color: var(--muted);
   font-size: 12px;
@@ -235,6 +239,22 @@ button:disabled {
 .textarea {
   min-height: 76px;
   resize: vertical;
+}
+
+.choice-button {
+  min-height: 42px;
+  padding: 10px 12px;
+  color: var(--ink);
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-weight: 700;
+}
+
+.choice-button.active {
+  color: #fff;
+  background: var(--brand);
+  border-color: var(--brand);
 }
 
 .input:focus,

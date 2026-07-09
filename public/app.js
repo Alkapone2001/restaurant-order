@@ -10,6 +10,8 @@ const state = {
 	view: "waiter",
 	login: { username: "", password: "" },
 	table: "",
+	takeAway: false,
+	takeAwayNewOrder: false,
 	orderNotes: "",
 	cart: [],
 	search: "",
@@ -428,10 +430,13 @@ function updateCart(productId, amount) {
 
 async function sendOrder() {
 	try {
+		const table = state.takeAway ? "Me Veti" : state.table;
 		const order = await api("/api/orders", {
 			method: "POST",
 			body: JSON.stringify({
-				table: state.table,
+				table,
+				takeAway: state.takeAway,
+				forceNew: state.takeAway && state.takeAwayNewOrder,
 				notes: state.orderNotes,
 				items: state.cart,
 			}),
@@ -441,7 +446,8 @@ async function sendOrder() {
 			? state.orders.map((item) => (item.id === order.id ? order : item))
 			: [order].concat(state.orders);
 		state.orderSnapshot[order.id] = snapshotOrder(order);
-		state.table = "";
+		if (!state.takeAway) state.table = "";
+		state.takeAwayNewOrder = false;
 		state.orderNotes = "";
 		state.cart = [];
 		toast(`Order #${order.number} sent`);
@@ -965,7 +971,11 @@ function renderWaiter() {
       <section class="panel"><div class="panel-header"><div><h2>New order</h2><p>${escapeHtml(state.me.name)} is taking this order.</p></div></div>
         <div class="panel-body">
           <div class="field-grid">
-            <div class="field"><label>Table</label><input class="input" data-action="table" value="${escapeHtml(state.table)}" placeholder="Table 4"></div>
+            <div class="field">
+              <label>Order type</label>
+              <button class="choice-button ${state.takeAway ? "active" : ""}" data-action="toggle-take-away" type="button">Me Veti</button>
+            </div>
+            <div class="field"><label>Table</label><input class="input" data-action="table" value="${escapeHtml(state.table)}" placeholder="${state.takeAway ? "Me Veti" : "Table 4"}" ${state.takeAway ? "disabled" : ""}></div>
             <div class="field"><label>Search</label><input class="input" data-action="search" value="${escapeHtml(state.search)}" placeholder="Menu item"></div>
             <div class="field"><label>Category</label><select class="select" data-action="category">${categories()
 							.map(
@@ -973,6 +983,7 @@ function renderWaiter() {
 									`<option value="${category}" ${state.category === category ? "selected" : ""}>${category === "" ? "Choose category" : category === "all" ? "All categories" : escapeHtml(category)}</option>`,
 							)
 							.join("")}</select></div>
+            ${state.takeAway ? `<label class="check full"><input type="checkbox" data-action="take-away-new-order" ${state.takeAwayNewOrder ? "checked" : ""}> Start as a separate Me Veti order</label>` : ""}
             <div class="field full"><label>Order note</label><textarea class="textarea" data-action="order-notes">${escapeHtml(state.orderNotes)}</textarea></div>
           </div>
           <div class="product-grid">${products || `<p class="empty">${state.search.trim() || state.category ? "No available products." : "Search or choose a category to show products."}</p>`}</div>
@@ -1201,6 +1212,12 @@ app.addEventListener("click", async (event) => {
 	if (action === "add-product") addProduct(target.dataset.id);
 	if (action === "cart-minus") updateCart(target.dataset.id, -1);
 	if (action === "cart-plus") updateCart(target.dataset.id, 1);
+	if (action === "toggle-take-away") {
+		state.takeAway = !state.takeAway;
+		if (state.takeAway) state.table = "";
+		else state.takeAwayNewOrder = false;
+		render();
+	}
 	if (action === "send-order") sendOrder();
 	if (action === "status") setStatus(target.dataset.id, target.dataset.status, target.dataset.station);
 	if (action === "paid") payOrder(target.dataset.id);
@@ -1302,6 +1319,10 @@ app.addEventListener("change", async (event) => {
 	if (action === "product-available") state.productForm.available = t.checked;
 	if (action === "product-category") state.productForm.category = t.value;
 	if (action === "waiter-active") state.waiterForm.active = t.checked;
+	if (action === "take-away-new-order") {
+		state.takeAwayNewOrder = t.checked;
+		render();
+	}
 	if (action === "head-waiter-filter") {
 		state.headWaiterFilter = t.value;
 		render();
