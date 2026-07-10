@@ -6,6 +6,7 @@ data/store.json
 data/backups/
 data/*.tmp
 data/test-*.json
+db-dumps/
 
 # Logs and diagnostics
 *.log
@@ -31,3 +32,4 @@ coverage/
 .cache/
 
 .vercel
+.env*

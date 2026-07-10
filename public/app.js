@@ -6,15 +6,21 @@ const state = {
 	users: [],
 	products: [],
 	orders: [],
+	tableLocks: [],
 	audit: [],
 	report: null,
 	view: "waiter",
 	login: { username: "", password: "" },
 	table: "",
+	selectedOrderId: "",
+	takeAway: false,
+	takeAwayNewOrder: false,
 	orderNotes: "",
 	cart: [],
 	search: "",
 	category: "",
+	headWaiterFilter: "mine",
+	managerWaiterFilter: "all",
 	reportDate: new Date().toISOString().slice(0, 10),
 	payment: {
 		method: "cash",
@@ -32,6 +38,7 @@ const state = {
 		sort: 999,
 	},
 	waiterForm: { id: "", name: "", username: "", password: "", active: true },
+	orderEdits: {},
 	closeDay: { countedCash: "", note: "" },
 	toast: "",
 	orderSnapshot: {},
@@ -49,9 +56,14 @@ const statusLabels = {
 	canceled: "Anuluar",
 };
 const statusRank = { sent: 1, received: 2, preparing: 3, done: 4 };
-const stationLabels = { kitchen: "Kuzhina" };
+const stationLabels = { kitchen: "Kuzhina", manager: "Menaxher" };
 const roleLabels = { admin: "Admin", waiter: "Kamarier", kitchen: "Kuzhina" };
 const paymentLabels = { cash: "Kesh", card: "Karte", mixed: "Te perziera", other: "Tjeter" };
+const tableSections = [
+	{ title: "Tavolinat", tables: Array.from({ length: 18 }, (_, index) => String(index + 1)) },
+	{ title: "Terasa", tables: ["Terasa 1", "Terasa 2"] },
+	{ title: "Salla", tables: ["Salla 1", "Salla 2", "Salla 3", "Salla 4"] },
+];
 const productCategories = [
 	"Pizza",
 	"Soups",
@@ -313,6 +325,13 @@ function defaultViewForRole(role) {
 	return "waiter";
 }
 
+function isHeadWaiter() {
+	if (!state.me || state.me.role !== "waiter") return false;
+	const username = String(state.me.username || "").trim().toLowerCase();
+	const firstName = String(state.me.name || "").trim().toLowerCase().split(/\s+/)[0];
+	return username === "arben" || firstName === "arben";
+}
+
 async function bootstrap() {
 	if (!state.token) {
 		render();
@@ -326,6 +345,7 @@ async function bootstrap() {
 		state.users = data.users || [];
 		state.products = data.products;
 		state.orders = data.orders;
+		state.tableLocks = data.tableLocks || [];
 		if (state.me.role === "kitchen") {
 			state.view = defaultViewForRole(state.me.role);
 		}
@@ -377,10 +397,14 @@ async function logout(callApi = true) {
 async function refreshOrders(silent) {
 	if (!state.token) return;
 	try {
-		const orders = await api("/api/orders");
+		const [orders, tableLocks] = await Promise.all([
+			api("/api/orders"),
+			api("/api/table-locks"),
+		]);
 		if (silent) detectOrderNotifications(orders);
 		else primeOrderSnapshot(orders);
 		state.orders = orders;
+		state.tableLocks = tableLocks;
 		if (!silent) render();
 	} catch (error) {
 		if (!silent) toast(error.message);
@@ -395,6 +419,10 @@ async function loadReport() {
 
 async function loadAudit() {
 	state.audit = await api("/api/audit");
+}
+
+function shouldPatchWaiterOrders() {
+	return state.view === "waiter";
 }
 
 function categories() {
@@ -425,6 +453,14 @@ function cartTotal() {
 	}, 0);
 }
 
+function canSendOrder() {
+	if (!state.cart.length) return false;
+	if (state.takeAway) return true;
+	if (!state.table) return false;
+	const lock = tableLock(state.table);
+	return !lock || lock.waiterId === state.me.id;
+}
+
 function addProduct(productId) {
 	const product = state.products.find((item) => item.id === productId);
 	if (!product || product.available === false) return;
@@ -449,10 +485,13 @@ function updateCart(productId, amount) {
 
 async function sendOrder() {
 	try {
+		const table = state.takeAway ? "Me Veti" : state.table;
 		const order = await api("/api/orders", {
 			method: "POST",
 			body: JSON.stringify({
-				table: state.table,
+				table,
+				takeAway: state.takeAway,
+				forceNew: state.takeAway && state.takeAwayNewOrder,
 				notes: state.orderNotes,
 				items: state.cart,
 			}),
@@ -462,10 +501,12 @@ async function sendOrder() {
 			? state.orders.map((item) => (item.id === order.id ? order : item))
 			: [order].concat(state.orders);
 		state.orderSnapshot[order.id] = snapshotOrder(order);
-		state.table = "";
+		state.selectedOrderId = order.id;
+		state.table = order.table;
+		state.takeAwayNewOrder = false;
 		state.orderNotes = "";
 		state.cart = [];
-		toast(`Porosia #${order.number} u dergua`);
+		toast(order.appendedToExisting ? `U shtua te porosia #${order.number} (${order.table})` : `Porosia #${order.number} u dergua`);
 	} catch (error) {
 		toast(error.message);
 	}
@@ -517,6 +558,45 @@ async function cancelOrder(orderId) {
 		});
 		replaceOrder(order);
 		toast(`Porosia #${order.number} u anulua`);
+	} catch (error) {
+		toast(error.message);
+	}
+}
+
+function beginEditOrder(orderId) {
+	const order = state.orders.find((item) => item.id === orderId);
+	if (!order || !state.me || state.me.role !== "admin" || order.paymentStatus !== "open") return;
+	state.orderEdits[orderId] = {
+		table: order.table,
+		notes: order.notes || "",
+		items: order.items.map((item) => ({
+			quantity: item.quantity,
+			price: item.price,
+			note: item.note || "",
+			removed: false,
+		})),
+		addProductId: "",
+		addedItems: [],
+	};
+	render();
+}
+
+function cancelEditOrder(orderId) {
+	delete state.orderEdits[orderId];
+	render();
+}
+
+async function saveEditOrder(orderId) {
+	const edit = state.orderEdits[orderId];
+	if (!edit) return;
+	try {
+		const order = await api(`/api/orders/${orderId}`, {
+			method: "PATCH",
+			body: JSON.stringify(edit),
+		});
+		delete state.orderEdits[orderId];
+		replaceOrder(order);
+		toast(`Porosia #${order.number} u perditesua`);
 	} catch (error) {
 		toast(error.message);
 	}
@@ -677,19 +757,144 @@ function activeOrders() {
 	return state.orders.filter((order) => order.paymentStatus === "open");
 }
 
+function isTakeAwayTable(table) {
+	return String(table || "").trim().toLowerCase() === "me veti";
+}
+
+function tableLock(table) {
+	const normalized = String(table || "").trim().toLowerCase();
+	return state.tableLocks.find((lock) => String(lock.table || "").trim().toLowerCase() === normalized);
+}
+
+function orderForTable(table) {
+	const normalized = String(table || "").trim().toLowerCase();
+	return activeOrders().find((order) => String(order.table || "").trim().toLowerCase() === normalized && order.waiterId === state.me.id);
+}
+
+function selectedActiveOrder() {
+	if (state.selectedOrderId) {
+		const byId = activeOrders().find((order) => order.id === state.selectedOrderId);
+		if (byId) return byId;
+	}
+	if (state.table) return orderForTable(state.table);
+	return null;
+}
+
+function waiterOwnActiveOrders() {
+	if (!state.me) return [];
+	return activeOrders().filter((order) => order.waiterId === state.me.id);
+}
+
+function visibleActiveOrders() {
+	const orders = activeOrders();
+	if (state.me && state.me.role === "admin") {
+		if (state.managerWaiterFilter === "all") return orders;
+		return orders.filter((order) => order.waiterId === state.managerWaiterFilter);
+	}
+	if (!isHeadWaiter()) return orders;
+	if (state.headWaiterFilter === "mine") return orders.filter((order) => order.waiterId === state.me.id);
+	return orders.filter((order) => order.waiterId === state.headWaiterFilter);
+}
+
 function closedOrders() {
 	return state.orders.filter((order) => order.paymentStatus !== "open");
+}
+
+function waiterNameFor(id, fallback) {
+	const waiter = state.users.find((user) => user.id === id);
+	return waiter ? waiter.name : fallback;
+}
+
+function waiterOptionsForHeadWaiter() {
+	const byId = new Map();
+	activeOrders().forEach((order) => {
+		if (isHeadWaiter() && order.waiterId === state.me.id) return;
+		byId.set(order.waiterId, waiterNameFor(order.waiterId, order.waiterName));
+	});
+	return Array.from(byId.entries()).sort((a, b) => a[1].localeCompare(b[1]));
+}
+
+function groupedActiveOrders() {
+	return visibleActiveOrders().reduce((groups, order) => {
+		const key = order.waiterId || "unknown";
+		if (!groups[key]) groups[key] = { waiterId: key, waiterName: waiterNameFor(order.waiterId, order.waiterName), orders: [] };
+		groups[key].orders.push(order);
+		return groups;
+	}, {});
+}
+
+function canPayOrder(order) {
+	if (!state.me || order.paymentStatus !== "open" || order.status !== "done") return false;
+	if (state.me.role === "admin") return true;
+	if (state.me.role !== "waiter") return false;
+	return order.waiterId === state.me.id || isHeadWaiter();
+}
+
+function canCancelOrder(order) {
+	if (!state.me || order.paymentStatus !== "open") return false;
+	if (state.me.role === "admin") return true;
+	return state.me.role === "waiter" && order.waiterId === state.me.id;
+}
+
+function isAutoPizzaBrut(item) {
+	return item && item.productId === "auto_pizza_brut";
+}
+
+function canEditOrder(order, context) {
+	return state.me && state.me.role === "admin" && context === "waiter" && order.paymentStatus === "open";
+}
+
+function renderOrderEditItems(order, edit) {
+	const existingItems = order.items
+		.map((item, index) => {
+			const row = edit.items[index] || {};
+			return `
+    <li class="edit-order-line ${row.removed ? "muted-row" : ""}">
+      <span><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(stationLabels[item.station] || item.station || "")}</small></span>
+      <input class="input compact" type="number" min="1" max="99" step="1" data-action="edit-order-quantity" data-id="${order.id}" data-index="${index}" value="${escapeHtml(row.quantity)}" ${row.removed ? "disabled" : ""}>
+      <input class="input compact" type="number" min="0" step="0.01" data-action="edit-order-price" data-id="${order.id}" data-index="${index}" value="${escapeHtml(row.price)}" ${row.removed ? "disabled" : ""}>
+      <input class="input compact edit-note" data-action="edit-order-note" data-id="${order.id}" data-index="${index}" value="${escapeHtml(row.note)}" placeholder="Shenim" ${row.removed ? "disabled" : ""}>
+      <button class="small-action ${row.removed ? "" : "danger"}" data-action="toggle-edit-item" data-id="${order.id}" data-index="${index}">${row.removed ? "Kthe" : "Hiq"}</button>
+    </li>
+  `;
+		})
+		.join("");
+	const addedItems = (edit.addedItems || [])
+		.map((item, index) => `
+    <li class="edit-order-line">
+      <span><strong>${escapeHtml(item.name)}</strong><small>Menaxher</small></span>
+      <input class="input compact" type="number" min="1" max="99" step="1" data-action="edit-added-quantity" data-id="${order.id}" data-index="${index}" value="${escapeHtml(item.quantity)}">
+      <input class="input compact" type="number" min="0" step="0.01" data-action="edit-added-price" data-id="${order.id}" data-index="${index}" value="${escapeHtml(item.price)}">
+      <input class="input compact edit-note" data-action="edit-added-note" data-id="${order.id}" data-index="${index}" value="${escapeHtml(item.note)}" placeholder="Shenim">
+      <button class="small-action danger" data-action="remove-added-item" data-id="${order.id}" data-index="${index}">Hiq</button>
+    </li>
+  `)
+		.join("");
+	return existingItems + addedItems;
+}
+
+function renderOrderEditProductPicker(order, edit) {
+	return `
+    <div class="edit-add-product">
+      <select class="select compact" data-action="edit-add-product-select" data-id="${order.id}">
+        <option value="">Shto produkt</option>
+        ${state.products.map((product) => `<option value="${escapeHtml(product.id)}" ${edit.addProductId === product.id ? "selected" : ""}>${escapeHtml(product.name)} - ${money(product.price)}</option>`).join("")}
+      </select>
+      <button class="small-action" data-action="add-product-to-edit" data-id="${order.id}" ${edit.addProductId ? "" : "disabled"}>Shto</button>
+    </div>
+  `;
 }
 
 function orderCard(order, context) {
 	const status = order.paymentStatus === "paid" ? "paid" : order.status;
 	const station = context && context.indexOf("station:") === 0 ? context.split(":")[1] : "";
 	const stationContext = Boolean(station);
-	const tableTitle = order.table && order.table !== "Pa tavoline" ? ` - ${escapeHtml(order.table)}` : "";
+	const stationStatus = stationContext && order.stationStatuses ? order.stationStatuses[station] : null;
+	const edit = canEditOrder(order, context) ? state.orderEdits[order.id] : null;
 	const displayItems = station
-		? order.items.filter((item) => item.station === station)
-		: order.items;
-	const items = displayItems
+		? order.items.filter((item) => item.station === station && (!stationStatus || !stationStatus.batchId || item.batchId === stationStatus.batchId))
+		: order.items.filter((item) => !isAutoPizzaBrut(item));
+	const items = edit ? renderOrderEditItems(order, edit) : displayItems
 		.map(
 			(item) => `
     <li>
@@ -709,7 +914,7 @@ function orderCard(order, context) {
     <article class="order-card ${order.paymentStatus !== "open" ? "closed" : ""}">
       <div class="order-card-header">
         <div>
-          <h3>#${order.number}${tableTitle}</h3>
+          <h3>#${order.number} - ${edit ? `<input class="input compact" data-action="edit-order-table" data-id="${order.id}" value="${escapeHtml(edit.table)}">` : escapeHtml(order.table)}</h3>
           <p>${escapeHtml(order.waiterName)} - ${new Date(order.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>
         </div>
         <span class="status ${status}">${statusLabels[status] || status}</span>
@@ -717,7 +922,8 @@ function orderCard(order, context) {
       <div class="order-card-body ${stationContext ? "station-card-body" : ""}">
         ${order.paymentStatus === "open" ? `<div class="station-summary">${stationSummary}</div>` : ""}
         <ul class="line-items">${items}</ul>
-        ${order.notes ? `<p class="${stationContext ? "station-order-note" : ""}"><strong>Shenim:</strong> ${escapeHtml(order.notes)}</p>` : ""}
+        ${edit ? renderOrderEditProductPicker(order, edit) : ""}
+        ${edit ? `<textarea class="textarea" data-action="edit-order-notes" data-id="${order.id}" placeholder="Shenim porosie">${escapeHtml(edit.notes)}</textarea>` : order.notes ? `<p class="${stationContext ? "station-order-note" : ""}"><strong>Shenim:</strong> ${escapeHtml(order.notes)}</p>` : ""}
         ${!stationContext && order.discount ? `<div class="line"><span>Zbritje</span><strong>-${money(order.discount)}</strong></div>` : ""}
         ${stationContext ? "" : `<div class="total-row"><span>Totali</span><span>${money(order.total)}</span></div>`}
         ${!stationContext && order.payment ? `<p>Pagesa: ${escapeHtml(paymentLabels[order.payment.method] || order.payment.method)}${order.payment.tip ? `, bakshish ${money(order.payment.tip)}` : ""}</p>` : ""}
@@ -730,6 +936,15 @@ function orderCard(order, context) {
 
 function orderActions(order, context) {
 	if (order.paymentStatus !== "open") return "";
+	const edit = state.orderEdits[order.id];
+	if (canEditOrder(order, context) && edit) {
+		return `
+    <div class="order-actions">
+      <button class="small-action ready" data-action="save-order-edit" data-id="${order.id}">Ruaj ndryshimet</button>
+      <button class="small-action" data-action="cancel-order-edit" data-id="${order.id}">Anulo ndryshimin</button>
+    </div>
+  `;
+	}
 	if (context && context.indexOf("station:") === 0) {
 		const station = context.split(":")[1];
 		const stationStatus = order.stationStatuses && order.stationStatuses[station] ? order.stationStatuses[station].status : "";
@@ -743,13 +958,14 @@ function orderActions(order, context) {
 	}
 	return `
     <div class="payment-box">
+      ${canEditOrder(order, context) ? `<button class="small-action" data-action="edit-order" data-id="${order.id}">Ndrysho porosine</button>` : ""}
       <select class="select compact" data-action="pay-method">
         ${["cash", "card", "mixed", "other"].map((method) => `<option value="${method}" ${state.payment.method === method ? "selected" : ""}>${paymentLabels[method]}</option>`).join("")}
       </select>
       <input class="input compact" type="number" step="0.01" data-action="pay-discount" value="${escapeHtml(state.payment.discount)}" placeholder="Zbritje">
       <input class="input compact" type="number" step="0.01" data-action="pay-tip" value="${escapeHtml(state.payment.tip)}" placeholder="Bakshish">
-      <button class="small-action ready" data-action="paid" data-id="${order.id}" ${order.status !== "done" ? "disabled" : ""}>Paguar</button>
-      <button class="small-action danger" data-action="cancel" data-id="${order.id}">Anulo</button>
+      <button class="small-action ready" data-action="paid" data-id="${order.id}" ${canPayOrder(order) ? "" : "disabled"}>Paguar</button>
+      ${canCancelOrder(order) ? `<button class="small-action danger" data-action="cancel" data-id="${order.id}">Anulo</button>` : ""}
     </div>
   `;
 }
@@ -766,6 +982,179 @@ function renderLogin() {
       </section>
       ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}
     </main>
+  `;
+}
+
+function renderTableSelector() {
+	const sections = tableSections.map((section) => `
+    <div class="table-section">
+      <h3>${escapeHtml(section.title)}</h3>
+      <div class="table-grid">
+        ${section.tables.map((table) => {
+					const lock = tableLock(table);
+					const ownOrder = orderForTable(table);
+					const occupiedByOther = lock && lock.waiterId !== state.me.id;
+					const active = state.table === table && !state.takeAway;
+					const free = !lock && !ownOrder;
+					const label = /^\d+$/.test(table) ? table : table.replace(" ", "\u00a0");
+					const meta = occupiedByOther ? escapeHtml(lock.waiterName) : ownOrder ? `#${ownOrder.number}` : "";
+					return `
+          <button class="table-button ${free ? "free" : ""} ${active ? "active" : ""} ${ownOrder ? "own" : ""} ${occupiedByOther ? "occupied" : ""}" data-action="select-table" data-table="${escapeHtml(table)}" ${occupiedByOther ? "disabled" : ""}>
+            <strong>${escapeHtml(label)}</strong>
+            ${meta ? `<span>${meta}</span>` : ""}
+          </button>
+        `;
+				}).join("")}
+      </div>
+    </div>
+  `).join("");
+	return `
+    <div data-waiter-table-controls>
+    <div class="take-away-row">
+      <button class="choice-button ${state.takeAway ? "active" : ""}" data-action="toggle-take-away" type="button">Me Veti</button>
+      ${state.takeAway ? `<label class="check"><input type="checkbox" data-action="take-away-new-order" ${state.takeAwayNewOrder ? "checked" : ""}> Porosi e ndare</label>` : ""}
+    </div>
+    <div class="table-legend">
+      <span><i class="legend-dot free"></i>E lire</span>
+      <span><i class="legend-dot selected"></i>E zgjedhur</span>
+      <span><i class="legend-dot mine"></i>E imja</span>
+      <span><i class="legend-dot occupied"></i>E zene</span>
+    </div>
+    <div class="table-selector ${state.takeAway ? "muted-row" : ""}" data-table-selector>
+      ${sections}
+    </div>
+    </div>
+  `;
+}
+
+function renderSelectedTableSummary() {
+	if (state.takeAway) {
+		return `<p class="empty">Me Veti eshte zgjedhur. Produktet e reja shkojne te porosia jote e hapur Me Veti, pervec nese zgjedh Porosi e ndare.</p>`;
+	}
+	if (!state.table) return `<p class="empty">Zgjidh tavolinen para se te dergosh porosine.</p>`;
+	const order = orderForTable(state.table);
+	return order
+		? `<p class="empty">Produktet do shtohen te porosia aktive #${order.number} per ${escapeHtml(state.table)}.</p>`
+		: `<p class="empty">Po hapet porosi e re per ${escapeHtml(state.table)}.</p>`;
+}
+
+function renderActiveTableTiles(orders) {
+	if (!orders.length) return `<p class="empty">Nuk ka tavolina aktive.</p>`;
+	return `<div class="active-table-grid">${orders.map((order) => `
+    <button class="active-table-card ${selectedActiveOrder() && selectedActiveOrder().id === order.id ? "active" : ""}" data-action="select-active-order" data-id="${order.id}">
+      <strong>${escapeHtml(order.table)}</strong>
+      <span>#${order.number} - ${statusLabels[order.status] || order.status}</span>
+      <small>${money(order.total)}</small>
+    </button>
+  `).join("")}</div>`;
+}
+
+function renderWaiterActiveOrders() {
+	const filterEnabled = isHeadWaiter() || (state.me && state.me.role === "admin");
+	if (!filterEnabled) {
+		const orders = waiterOwnActiveOrders();
+		const selected = selectedActiveOrder();
+		return `
+      ${renderActiveTableTiles(orders)}
+      <div class="selected-order-detail" data-selected-order>
+        ${selected ? orderCard(selected, "waiter") : `<p class="empty">Zgjidh nje nga tavolinat aktive per te pare porosine.</p>`}
+      </div>
+    `;
+	}
+	const groups = groupedActiveOrders();
+	const waiterOptions = waiterOptionsForHeadWaiter();
+	const filterAction = isHeadWaiter() ? "head-waiter-filter" : "manager-waiter-filter";
+	const selector = `
+    <div class="field compact-field">
+      <label>Kamarieri</label>
+      <select class="select compact" data-action="${filterAction}">
+        ${isHeadWaiter()
+					? `<option value="mine" ${state.headWaiterFilter === "mine" ? "selected" : ""}>Porosit e mia</option>`
+					: `<option value="all" ${state.managerWaiterFilter === "all" ? "selected" : ""}>Te gjithe kamarieret</option>`}
+        ${waiterOptions.map(([id, name]) => `<option value="${escapeHtml(id)}" ${(isHeadWaiter() ? state.headWaiterFilter : state.managerWaiterFilter) === id ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}
+      </select>
+    </div>
+  `;
+	const sections = Object.values(groups)
+		.sort((a, b) => a.waiterName.localeCompare(b.waiterName))
+		.map((group) => `
+      <div class="waiter-order-group">
+        <h3>${escapeHtml(group.waiterName)}</h3>
+        ${group.orders.map((order) => orderCard(order, "waiter")).join("")}
+      </div>
+    `)
+		.join("");
+	return selector + (sections || `<p class="empty">Nuk ka porosi aktive.</p>`);
+}
+
+function patchWaiterActiveOrders() {
+	if (Object.keys(state.orderEdits).length) return true;
+	reconcileWaiterSelection();
+	const controls = app.querySelector("[data-waiter-table-controls]");
+	if (controls) controls.outerHTML = renderTableSelector();
+	const summary = app.querySelector("[data-order-target-summary]");
+	if (summary) summary.innerHTML = renderSelectedTableSummary();
+	const list = app.querySelector("[data-active-orders]");
+	if (!list) return false;
+	list.innerHTML = renderWaiterActiveOrders();
+	return true;
+}
+
+function reconcileWaiterSelection() {
+	if (!state.me) return;
+	if (state.selectedOrderId && !activeOrders().some((order) => order.id === state.selectedOrderId)) {
+		state.selectedOrderId = "";
+	}
+	if (!state.takeAway && state.table) {
+		const lock = tableLock(state.table);
+		if (lock && lock.waiterId !== state.me.id) {
+			state.table = "";
+			state.selectedOrderId = "";
+		}
+	}
+}
+
+function renderQuickCategories() {
+	const quick = productCategories
+		.filter((category) => state.products.some((product) => product.available !== false && product.category === category))
+		.slice(0, 8);
+	if (!quick.length) return "";
+	return `
+    <div class="quick-strip" aria-label="Kategorite e shpejta">
+      <button class="chip ${state.category === "all" ? "active" : ""}" data-action="quick-category" data-category="all" type="button">Te gjitha</button>
+      ${quick.map((category) => `<button class="chip ${state.category === category ? "active" : ""}" data-action="quick-category" data-category="${escapeHtml(category)}" type="button">${escapeHtml(categoryLabel(category))}</button>`).join("")}
+    </div>
+  `;
+}
+
+function recentProducts() {
+	const counts = new Map();
+	state.orders
+		.filter((order) => order.waiterId === state.me.id)
+		.slice(0, 12)
+		.forEach((order) => {
+			(order.items || []).forEach((item) => {
+				if (isAutoPizzaBrut(item)) return;
+				counts.set(item.productId, (counts.get(item.productId) || 0) + Number(item.quantity || 1));
+			});
+		});
+	return Array.from(counts.entries())
+		.sort((a, b) => b[1] - a[1])
+		.map(([id]) => state.products.find((product) => product.id === id && product.available !== false))
+		.filter(Boolean)
+		.slice(0, 6);
+}
+
+function renderRecentItems() {
+	const products = recentProducts();
+	if (!products.length) return "";
+	return `
+    <div class="recent-strip">
+      <span>Te fundit</span>
+      <div>
+        ${products.map((product) => `<button class="recent-item" data-action="add-product" data-id="${escapeHtml(product.id)}" type="button">${escapeHtml(product.name)}</button>`).join("")}
+      </div>
+    </div>
   `;
 }
 
@@ -798,6 +1187,7 @@ function renderWaiter() {
       <section class="panel"><div class="panel-header"><div><h2>Porosi e re</h2><p>${escapeHtml(state.me.name)} po e merr kete porosi.</p></div></div>
         <div class="panel-body">
           <div class="field-grid">
+            <div class="field full"><label>Tavolina</label>${renderTableSelector()}</div>
             <div class="field"><label>Kerko</label><input class="input" data-action="search" value="${escapeHtml(state.search)}" placeholder="Artikull menuje"></div>
             <div class="field"><label>Kategoria</label><select class="select" data-action="category">${categories()
 							.map(
@@ -807,17 +1197,16 @@ function renderWaiter() {
 							.join("")}</select></div>
             <div class="field full"><label>Shenim porosie</label><textarea class="textarea" data-action="order-notes">${escapeHtml(state.orderNotes)}</textarea></div>
           </div>
+          <div class="order-target-summary" data-order-target-summary>${renderSelectedTableSummary()}</div>
+          ${renderQuickCategories()}
+          ${renderRecentItems()}
           <div class="product-grid">${products || `<p class="empty">${state.search.trim() || state.category ? "Nuk ka produkte te disponueshme." : "Kerko ose zgjidh nje kategori per te shfaqur produktet."}</p>`}</div>
         </div>
       </section>
       <aside class="panel"><div class="panel-header"><div><h2>Fatura</h2><p>${state.cart.length} artikull${state.cart.length === 1 ? "" : "e"}</p></div></div>
-        <div class="panel-body"><div class="cart-list">${cart || `<p class="empty">Prek produktet per t'i shtuar.</p>`}</div><div class="cart-footer"><div class="total-row"><span>Totali</span><span>${money(cartTotal())}</span></div><button class="primary" data-action="send-order" ${state.cart.length ? "" : "disabled"}>Dergo porosine</button></div></div>
+        <div class="panel-body"><div class="cart-list">${cart || `<p class="empty">Prek produktet per t'i shtuar.</p>`}</div><div class="cart-footer"><div class="total-row"><span>Totali</span><span>${money(cartTotal())}</span></div><button class="primary" data-action="send-order" ${canSendOrder() ? "" : "disabled"}>Dergo porosine</button></div></div>
       </aside>
-      <section class="panel span"><div class="panel-header"><div><h2>Porosite e mia aktive</h2><p>Mbylli porosite vetem pasi kuzhina i shenon gati.</p></div></div><div class="panel-body"><div class="order-list">${
-				activeOrders()
-					.map((order) => orderCard(order, "waiter"))
-					.join("") || `<p class="empty">Nuk ka porosi aktive.</p>`
-			}</div></div></section>
+      <section class="panel span"><div class="panel-header"><div><h2>Porosite e mia aktive</h2><p>Mbylli porosite vetem pasi kuzhina i shenon gati.</p></div></div><div class="panel-body"><div class="order-list" data-active-orders>${renderWaiterActiveOrders()}</div></div></section>
     </div>
   `;
 }
@@ -850,6 +1239,12 @@ function renderReports() {
 		orders: [],
 		voidOrders: [],
 	};
+	const paidOrdersByWaiter = report.byWaiter
+		.map((waiter) => ({
+			...waiter,
+			orders: report.orders.filter((order) => order.waiterId === waiter.waiterId),
+		}))
+		.filter((waiter) => waiter.orders.length > 0);
 	return `
     <section class="report-grid">
       <aside class="panel"><div class="panel-header"><div><h2>Mbyllja e dites</h2><p>Shitjet e paguara, anulimet dhe kontrolli i keshit.</p></div></div>
@@ -867,8 +1262,15 @@ function renderReports() {
         <div class="panel-body">
           <div class="metrics-row"><div class="metric"><span>Nentotali</span><strong>${money(report.subtotal)}</strong></div><div class="metric"><span>Zbritje</span><strong>${money(report.discounts)}</strong></div><div class="metric"><span>Bakshishe</span><strong>${money(report.tips)}</strong></div></div>
           <h3 class="section-title">Metodat e pageses</h3><div class="report-list">${report.byMethod.map((row) => `<div class="report-row"><span>${escapeHtml(paymentLabels[row.method] || row.method)} (${row.orders})</span><strong>${money(row.total)}</strong></div>`).join("")}</div>
-          <h3 class="section-title">Kamarieret</h3><div class="report-list">${report.byWaiter.map((row) => `<div class="report-row"><span>${escapeHtml(row.waiterName)} (${row.orders})</span><strong>${money(row.total)}</strong></div>`).join("")}</div>
-          <h3 class="section-title">Porosi te paguara</h3><div class="order-list">${report.orders.map((order) => orderCard(order, "report")).join("") || `<p class="empty">Nuk ka porosi te paguara.</p>`}</div>
+          <h3 class="section-title">Kamarieret</h3><div class="report-list waiter-report-list">${paidOrdersByWaiter.map((waiter) => `
+            <details class="waiter-report-group">
+              <summary>
+                <span>${escapeHtml(waiter.waiterName)} (${waiter.orders.length})</span>
+                <strong>${money(waiter.total)}</strong>
+              </summary>
+              <div class="order-list">${waiter.orders.map((order) => orderCard(order, "report")).join("")}</div>
+            </details>
+          `).join("") || `<p class="empty">Nuk ka porosi te paguara.</p>`}</div>
         </div>
       </section>
     </section>
@@ -1029,12 +1431,80 @@ app.addEventListener("click", async (event) => {
 	if (action === "login") login();
 	if (action === "logout") logout(true);
 	if (action === "add-product") addProduct(target.dataset.id);
+	if (action === "quick-category") {
+		state.category = target.dataset.category || "";
+		render();
+	}
 	if (action === "cart-minus") updateCart(target.dataset.id, -1);
 	if (action === "cart-plus") updateCart(target.dataset.id, 1);
+	if (action === "select-table") {
+		const table = target.dataset.table || "";
+		const lock = tableLock(table);
+		if (lock && lock.waiterId !== state.me.id) return;
+		state.takeAway = false;
+		state.takeAwayNewOrder = false;
+		state.table = table;
+		const order = orderForTable(table);
+		state.selectedOrderId = order ? order.id : "";
+		render();
+	}
+	if (action === "select-active-order") {
+		const order = state.orders.find((item) => item.id === target.dataset.id);
+		if (!order) return;
+		state.takeAway = isTakeAwayTable(order.table);
+		state.takeAwayNewOrder = false;
+		state.table = state.takeAway ? "" : order.table;
+		state.selectedOrderId = order.id;
+		render();
+	}
+	if (action === "toggle-take-away") {
+		state.takeAway = !state.takeAway;
+		if (state.takeAway) {
+			state.table = "";
+			const ownTakeAway = waiterOwnActiveOrders().find((order) => isTakeAwayTable(order.table));
+			state.selectedOrderId = ownTakeAway ? ownTakeAway.id : "";
+		} else {
+			state.takeAwayNewOrder = false;
+			if (isTakeAwayTable(state.table)) state.table = "";
+			state.selectedOrderId = "";
+		}
+		render();
+	}
 	if (action === "send-order") sendOrder();
 	if (action === "status") setStatus(target.dataset.id, target.dataset.status, target.dataset.station);
 	if (action === "paid") payOrder(target.dataset.id);
 	if (action === "cancel") cancelOrder(target.dataset.id);
+	if (action === "edit-order") beginEditOrder(target.dataset.id);
+	if (action === "save-order-edit") saveEditOrder(target.dataset.id);
+	if (action === "cancel-order-edit") cancelEditOrder(target.dataset.id);
+	if (action === "toggle-edit-item") {
+		const edit = state.orderEdits[target.dataset.id];
+		const item = edit && edit.items[Number(target.dataset.index)];
+		if (item) item.removed = !item.removed;
+		render();
+	}
+	if (action === "add-product-to-edit") {
+		const edit = state.orderEdits[target.dataset.id];
+		const product = edit && state.products.find((item) => item.id === edit.addProductId);
+		if (edit && product) {
+			edit.addedItems.push({
+				productId: product.id,
+				name: product.name,
+				quantity: 1,
+				price: product.price,
+				note: "",
+			});
+			edit.addProductId = "";
+			render();
+		}
+	}
+	if (action === "remove-added-item") {
+		const edit = state.orderEdits[target.dataset.id];
+		if (edit) {
+			edit.addedItems.splice(Number(target.dataset.index), 1);
+			render();
+		}
+	}
 	if (action === "save-product") saveProduct();
 	if (action === "edit-product") editProduct(target.dataset.id);
 	if (action === "delete-product") deleteProduct(target.dataset.id);
@@ -1078,6 +1548,14 @@ app.addEventListener("input", (event) => {
 	if (action === "waiter-name") state.waiterForm.name = t.value;
 	if (action === "waiter-username") state.waiterForm.username = t.value;
 	if (action === "waiter-password") state.waiterForm.password = t.value;
+	if (action === "edit-order-table" && state.orderEdits[t.dataset.id]) state.orderEdits[t.dataset.id].table = t.value;
+	if (action === "edit-order-notes" && state.orderEdits[t.dataset.id]) state.orderEdits[t.dataset.id].notes = t.value;
+	if (action === "edit-order-quantity" && state.orderEdits[t.dataset.id]) state.orderEdits[t.dataset.id].items[Number(t.dataset.index)].quantity = t.value;
+	if (action === "edit-order-price" && state.orderEdits[t.dataset.id]) state.orderEdits[t.dataset.id].items[Number(t.dataset.index)].price = t.value;
+	if (action === "edit-order-note" && state.orderEdits[t.dataset.id]) state.orderEdits[t.dataset.id].items[Number(t.dataset.index)].note = t.value;
+	if (action === "edit-added-quantity" && state.orderEdits[t.dataset.id]) state.orderEdits[t.dataset.id].addedItems[Number(t.dataset.index)].quantity = t.value;
+	if (action === "edit-added-price" && state.orderEdits[t.dataset.id]) state.orderEdits[t.dataset.id].addedItems[Number(t.dataset.index)].price = t.value;
+	if (action === "edit-added-note" && state.orderEdits[t.dataset.id]) state.orderEdits[t.dataset.id].addedItems[Number(t.dataset.index)].note = t.value;
 	if (action === "close-cash") state.closeDay.countedCash = t.value;
 	if (action === "close-note") state.closeDay.note = t.value;
 });
@@ -1093,6 +1571,22 @@ app.addEventListener("change", async (event) => {
 	if (action === "product-available") state.productForm.available = t.checked;
 	if (action === "product-category") state.productForm.category = t.value;
 	if (action === "waiter-active") state.waiterForm.active = t.checked;
+	if (action === "take-away-new-order") {
+		state.takeAwayNewOrder = t.checked;
+		render();
+	}
+	if (action === "head-waiter-filter") {
+		state.headWaiterFilter = t.value;
+		render();
+	}
+	if (action === "manager-waiter-filter") {
+		state.managerWaiterFilter = t.value;
+		render();
+	}
+	if (action === "edit-add-product-select" && state.orderEdits[t.dataset.id]) {
+		state.orderEdits[t.dataset.id].addProductId = t.value;
+		render();
+	}
 	if (action === "report-date") {
 		state.reportDate = t.value;
 		await loadReport();
@@ -1110,5 +1604,9 @@ setInterval(async () => {
 	if (!state.me) return;
 	await refreshOrders(true);
 	if (state.view === "reports") await loadReport();
+	if (shouldPatchWaiterOrders()) {
+		if (!patchWaiterActiveOrders()) render();
+		return;
+	}
 	render();
 }, 4000);
