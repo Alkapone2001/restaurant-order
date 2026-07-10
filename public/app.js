@@ -1158,6 +1158,12 @@ function renderReports() {
 		orders: [],
 		voidOrders: [],
 	};
+	const paidOrdersByWaiter = report.byWaiter
+		.map((waiter) => ({
+			...waiter,
+			orders: report.orders.filter((order) => order.waiterId === waiter.waiterId),
+		}))
+		.filter((waiter) => waiter.orders.length > 0);
 	return `
     <section class="report-grid">
       <aside class="panel"><div class="panel-header"><div><h2>End of day</h2><p>Paid sales, voids, and cash control.</p></div></div>
@@ -1175,8 +1181,15 @@ function renderReports() {
         <div class="panel-body">
           <div class="metrics-row"><div class="metric"><span>Subtotal</span><strong>${money(report.subtotal)}</strong></div><div class="metric"><span>Discounts</span><strong>${money(report.discounts)}</strong></div><div class="metric"><span>Tips</span><strong>${money(report.tips)}</strong></div></div>
           <h3 class="section-title">Payment methods</h3><div class="report-list">${report.byMethod.map((row) => `<div class="report-row"><span>${escapeHtml(row.method)} (${row.orders})</span><strong>${money(row.total)}</strong></div>`).join("")}</div>
-          <h3 class="section-title">Waiters</h3><div class="report-list">${report.byWaiter.map((row) => `<div class="report-row"><span>${escapeHtml(row.waiterName)} (${row.orders})</span><strong>${money(row.total)}</strong></div>`).join("")}</div>
-          <h3 class="section-title">Paid orders</h3><div class="order-list">${report.orders.map((order) => orderCard(order, "report")).join("") || `<p class="empty">No paid orders.</p>`}</div>
+          <h3 class="section-title">Waiters</h3><div class="report-list waiter-report-list">${paidOrdersByWaiter.map((waiter) => `
+            <details class="waiter-report-group">
+              <summary>
+                <span>${escapeHtml(waiter.waiterName)} (${waiter.orders.length})</span>
+                <strong>${money(waiter.total)}</strong>
+              </summary>
+              <div class="order-list">${waiter.orders.map((order) => orderCard(order, "report")).join("")}</div>
+            </details>
+          `).join("") || `<p class="empty">No paid orders.</p>`}</div>
         </div>
       </section>
     </section>

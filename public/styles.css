@@ -802,6 +802,32 @@ button:disabled {
   padding: 12px;
 }
 
+.waiter-report-group {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.waiter-report-group summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.waiter-report-group[open] summary {
+  border-bottom: 1px solid var(--line);
+  background: #f9fbfd;
+}
+
+.waiter-report-group .order-list {
+  padding: 12px;
+}
+
 .toast {
   position: fixed;
   right: 18px;
