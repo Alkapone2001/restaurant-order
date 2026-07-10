@@ -471,7 +471,7 @@ async function sendOrder() {
 		state.takeAwayNewOrder = false;
 		state.orderNotes = "";
 		state.cart = [];
-		toast(`Order #${order.number} sent`);
+		toast(order.appendedToExisting ? `Added to order #${order.number} (${order.table})` : `Order #${order.number} sent`);
 	} catch (error) {
 		toast(error.message);
 	}
@@ -960,10 +960,11 @@ function renderTableSelector() {
 					const ownOrder = orderForTable(table);
 					const occupiedByOther = lock && lock.waiterId !== state.me.id;
 					const active = state.table === table && !state.takeAway;
+					const free = !lock && !ownOrder;
 					const label = /^\d+$/.test(table) ? table : table.replace(" ", "\u00a0");
 					const meta = occupiedByOther ? escapeHtml(lock.waiterName) : ownOrder ? `#${ownOrder.number}` : "";
 					return `
-          <button class="table-button ${active ? "active" : ""} ${ownOrder ? "own" : ""} ${occupiedByOther ? "occupied" : ""}" data-action="select-table" data-table="${escapeHtml(table)}" ${occupiedByOther ? "disabled" : ""}>
+          <button class="table-button ${free ? "free" : ""} ${active ? "active" : ""} ${ownOrder ? "own" : ""} ${occupiedByOther ? "occupied" : ""}" data-action="select-table" data-table="${escapeHtml(table)}" ${occupiedByOther ? "disabled" : ""}>
             <strong>${escapeHtml(label)}</strong>
             ${meta ? `<span>${meta}</span>` : ""}
           </button>
@@ -977,6 +978,12 @@ function renderTableSelector() {
     <div class="take-away-row">
       <button class="choice-button ${state.takeAway ? "active" : ""}" data-action="toggle-take-away" type="button">Me Veti</button>
       ${state.takeAway ? `<label class="check"><input type="checkbox" data-action="take-away-new-order" ${state.takeAwayNewOrder ? "checked" : ""}> Separate order</label>` : ""}
+    </div>
+    <div class="table-legend">
+      <span><i class="legend-dot free"></i>Free</span>
+      <span><i class="legend-dot selected"></i>Selected</span>
+      <span><i class="legend-dot mine"></i>Mine</span>
+      <span><i class="legend-dot occupied"></i>Occupied</span>
     </div>
     <div class="table-selector ${state.takeAway ? "muted-row" : ""}" data-table-selector>
       ${sections}
@@ -1366,6 +1373,7 @@ app.addEventListener("click", async (event) => {
 			state.selectedOrderId = ownTakeAway ? ownTakeAway.id : "";
 		} else {
 			state.takeAwayNewOrder = false;
+			if (isTakeAwayTable(state.table)) state.table = "";
 			state.selectedOrderId = "";
 		}
 		render();

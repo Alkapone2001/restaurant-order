@@ -270,6 +270,49 @@ button:disabled {
   gap: 12px;
 }
 
+.table-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.table-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+
+.legend-dot.free {
+  background: #fff;
+}
+
+.legend-dot.selected {
+  background: var(--brand);
+  border-color: var(--brand);
+}
+
+.legend-dot.mine {
+  background: #dcfce7;
+  border-color: var(--ready);
+}
+
+.legend-dot.occupied {
+  background: #fee2e2;
+  border-color: var(--danger);
+}
+
 .table-section {
   display: grid;
   gap: 8px;
@@ -330,11 +373,18 @@ button:disabled {
 }
 
 .table-button.own {
+  background: #f0fdf4;
   border-color: var(--ready);
 }
 
 .table-button.occupied {
-  background: #f1f5f9;
+  color: #991b1b;
+  background: #fee2e2;
+  border-color: #fecaca;
+}
+
+.table-button.occupied span {
+  color: #991b1b;
 }
 
 .selected-order-detail {
