@@ -32,3 +32,4 @@ coverage/
 .cache/
 
 .vercel
+.env*

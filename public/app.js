@@ -856,8 +856,12 @@ function orderCard(order, context) {
 	const stationContext = Boolean(station);
 	const stationStatus = stationContext && order.stationStatuses ? order.stationStatuses[station] : null;
 	const edit = canEditOrder(order, context) ? state.orderEdits[order.id] : null;
+	const stationItems = station ? order.items.filter((item) => item.station === station) : [];
+	const stationBatchItems = stationStatus && stationStatus.batchId
+		? stationItems.filter((item) => item.batchId === stationStatus.batchId)
+		: stationItems;
 	const displayItems = station
-		? order.items.filter((item) => item.station === station && (!stationStatus || !stationStatus.batchId || item.batchId === stationStatus.batchId))
+		? (stationBatchItems.length ? stationBatchItems : stationItems)
 		: order.items.filter((item) => !isAutoPizzaBrut(item));
 	const items = edit ? renderOrderEditItems(order, edit) : displayItems
 		.map(
@@ -1139,7 +1143,7 @@ function renderStation(station) {
 	return `<section class="station-board"><div class="panel station-hero"><div class="panel-header"><div><h2>${stationLabels[station]} orders</h2><p>Receive and complete only the items assigned to this station.</p></div></div></div><div class="kitchen-grid">${columns
 		.map((column) => {
 			const orders = activeOrders().filter(
-				(order) => order.stationStatuses && order.stationStatuses[station] && column.statuses.indexOf(order.stationStatuses[station].status) > -1,
+				(order) => order.items.some((item) => item.station === station) && order.stationStatuses && order.stationStatuses[station] && column.statuses.indexOf(order.stationStatuses[station].status) > -1,
 			);
 			return `<div class="column"><h2>${stationLabels[station]} - ${column.title}</h2><div class="order-list">${orders.map((order) => orderCard(order, `station:${station}`)).join("") || `<p class="empty">Nothing here.</p>`}</div></div>`;
 		})
