@@ -872,7 +872,7 @@ function orderCard(order, context) {
     </li>
   `,
 		)
-		.join("");
+		.join("") || (stationContext ? `<li><span><strong>Check with waiter</strong><small>This order has no visible items for this station.</small></span></li>` : "");
 	const stationSummary = order.stationStatuses
 		? Object.keys(order.stationStatuses)
 				.map((key) => `<span class="status ${order.stationStatuses[key].status}">${stationLabels[key]}: ${statusLabels[order.stationStatuses[key].status]}</span>`)
