@@ -1523,10 +1523,10 @@ bootstrap();
 setInterval(async () => {
 	if (!state.me) return;
 	await refreshOrders(true);
-	if (state.view === "reports") await loadReport();
 	if (shouldPatchWaiterOrders()) {
 		if (!patchWaiterActiveOrders()) render();
 		return;
 	}
+	if (state.view === "reports") return;
 	render();
 }, 4000);
