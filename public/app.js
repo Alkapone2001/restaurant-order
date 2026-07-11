@@ -477,14 +477,14 @@ async function sendOrder() {
 	}
 }
 
-async function setStatus(orderId, status, station) {
+async function setStatus(orderId, status, station, batchId) {
 	try {
 		const path = station
 			? `/api/orders/${orderId}/stations/${station}/status`
 			: `/api/orders/${orderId}/status`;
 		const order = await api(path, {
 			method: "PATCH",
-			body: JSON.stringify({ status }),
+			body: JSON.stringify({ status, batchId: batchId || "" }),
 		});
 		replaceOrder(order);
 		toast(`Order #${order.number}: ${station ? `${stationLabels[station]} ` : ""}${statusLabels[status]}`);
@@ -805,6 +805,32 @@ function isAutoPizzaBrut(item) {
 	return item && item.productId === "auto_pizza_brut";
 }
 
+function stationContextParts(context) {
+	if (!context || context.indexOf("station:") !== 0) return { station: "", batchId: "" };
+	const match = context.match(/^station:([^:]+)(?::(.+))?$/);
+	return {
+		station: match ? match[1] : "",
+		batchId: match && match[2] ? decodeURIComponent(match[2]) : "",
+	};
+}
+
+function stationBatchEntries(order, station) {
+	const status = order.stationStatuses && order.stationStatuses[station];
+	if (!status) return [];
+	if (status.batches && Object.keys(status.batches).length) {
+		return Object.keys(status.batches).map((batchId) => ({
+			batchId,
+			...status.batches[batchId],
+		}));
+	}
+	return [{
+		batchId: status.batchId || "",
+		status: status.status,
+		updatedAt: status.updatedAt,
+		updatedBy: status.updatedBy,
+	}];
+}
+
 function canEditOrder(order, context) {
 	return state.me && state.me.role === "admin" && context === "waiter" && order.paymentStatus === "open";
 }
@@ -852,13 +878,20 @@ function renderOrderEditProductPicker(order, edit) {
 
 function orderCard(order, context) {
 	const status = order.paymentStatus === "paid" ? "paid" : order.status;
-	const station = context && context.indexOf("station:") === 0 ? context.split(":")[1] : "";
+	const stationContextInfo = stationContextParts(context);
+	const station = stationContextInfo.station;
+	const stationBatchId = stationContextInfo.batchId;
 	const stationContext = Boolean(station);
 	const stationStatus = stationContext && order.stationStatuses ? order.stationStatuses[station] : null;
+	const batchStatus = stationContext && stationBatchId && stationStatus && stationStatus.batches
+		? stationStatus.batches[stationBatchId]
+		: stationStatus;
 	const edit = canEditOrder(order, context) ? state.orderEdits[order.id] : null;
 	const stationItems = station ? order.items.filter((item) => item.station === station) : [];
-	const stationBatchItems = stationStatus && stationStatus.batchId
-		? stationItems.filter((item) => item.batchId === stationStatus.batchId)
+	const stationBatchItems = stationBatchId
+		? stationItems.filter((item) => item.batchId === stationBatchId)
+		: batchStatus && batchStatus.batchId
+			? stationItems.filter((item) => item.batchId === batchStatus.batchId)
 		: stationItems;
 	const displayItems = station
 		? (stationBatchItems.length ? stationBatchItems : stationItems)
@@ -915,13 +948,16 @@ function orderActions(order, context) {
   `;
 	}
 	if (context && context.indexOf("station:") === 0) {
-		const station = context.split(":")[1];
-		const stationStatus = order.stationStatuses && order.stationStatuses[station] ? order.stationStatuses[station].status : "";
+		const { station, batchId } = stationContextParts(context);
+		const batch = batchId && order.stationStatuses && order.stationStatuses[station] && order.stationStatuses[station].batches
+			? order.stationStatuses[station].batches[batchId]
+			: order.stationStatuses && order.stationStatuses[station];
+		const stationStatus = batch ? batch.status : "";
 		return `
       <div class="order-actions">
-        <button class="small-action" data-action="status" data-id="${order.id}" data-station="${station}" data-status="received" ${stationStatus !== "sent" ? "disabled" : ""}>Confirm</button>
-        <button class="small-action" data-action="status" data-id="${order.id}" data-station="${station}" data-status="preparing" ${stationStatus !== "received" ? "disabled" : ""}>Prepare</button>
-        <button class="small-action ready" data-action="status" data-id="${order.id}" data-station="${station}" data-status="done" ${["received", "preparing"].indexOf(stationStatus) === -1 ? "disabled" : ""}>Done</button>
+        <button class="small-action" data-action="status" data-id="${order.id}" data-station="${station}" data-batch-id="${escapeHtml(batchId)}" data-status="received" ${stationStatus !== "sent" ? "disabled" : ""}>Confirm</button>
+        <button class="small-action" data-action="status" data-id="${order.id}" data-station="${station}" data-batch-id="${escapeHtml(batchId)}" data-status="preparing" ${stationStatus !== "received" ? "disabled" : ""}>Prepare</button>
+        <button class="small-action ready" data-action="status" data-id="${order.id}" data-station="${station}" data-batch-id="${escapeHtml(batchId)}" data-status="done" ${["received", "preparing"].indexOf(stationStatus) === -1 ? "disabled" : ""}>Done</button>
       </div>
     `;
 	}
@@ -1142,10 +1178,13 @@ function renderStation(station) {
 	];
 	return `<section class="station-board"><div class="panel station-hero"><div class="panel-header"><div><h2>${stationLabels[station]} orders</h2><p>Receive and complete only the items assigned to this station.</p></div></div></div><div class="kitchen-grid">${columns
 		.map((column) => {
-			const orders = activeOrders().filter(
-				(order) => order.items.some((item) => item.station === station) && order.stationStatuses && order.stationStatuses[station] && column.statuses.indexOf(order.stationStatuses[station].status) > -1,
-			);
-			return `<div class="column"><h2>${stationLabels[station]} - ${column.title}</h2><div class="order-list">${orders.map((order) => orderCard(order, `station:${station}`)).join("") || `<p class="empty">Nothing here.</p>`}</div></div>`;
+			const cards = activeOrders().flatMap((order) => (
+				stationBatchEntries(order, station)
+					.filter((batch) => column.statuses.indexOf(batch.status) > -1)
+					.filter((batch) => order.items.some((item) => item.station === station && (!batch.batchId || item.batchId === batch.batchId)))
+					.map((batch) => orderCard(order, `station:${station}:${encodeURIComponent(batch.batchId || "")}`))
+			));
+			return `<div class="column"><h2>${stationLabels[station]} - ${column.title}</h2><div class="order-list">${cards.join("") || `<p class="empty">Nothing here.</p>`}</div></div>`;
 		})
 		.join("")}</div></section>`;
 }
@@ -1396,7 +1435,7 @@ app.addEventListener("click", async (event) => {
 		render();
 	}
 	if (action === "send-order") sendOrder();
-	if (action === "status") setStatus(target.dataset.id, target.dataset.status, target.dataset.station);
+	if (action === "status") setStatus(target.dataset.id, target.dataset.status, target.dataset.station, target.dataset.batchId);
 	if (action === "paid") payOrder(target.dataset.id);
 	if (action === "cancel") cancelOrder(target.dataset.id);
 	if (action === "edit-order") beginEditOrder(target.dataset.id);
