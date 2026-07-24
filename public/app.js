@@ -1178,10 +1178,17 @@ function renderStation(station) {
 	];
 	return `<section class="station-board"><div class="panel station-hero"><div class="panel-header"><div><h2>${stationLabels[station]} orders</h2><p>Receive and complete only the items assigned to this station.</p></div></div></div><div class="kitchen-grid">${columns
 		.map((column) => {
+			const rendered = new Set();
 			const cards = activeOrders().flatMap((order) => (
 				stationBatchEntries(order, station)
 					.filter((batch) => column.statuses.indexOf(batch.status) > -1)
 					.filter((batch) => order.items.some((item) => item.station === station && (!batch.batchId || item.batchId === batch.batchId)))
+					.filter((batch) => {
+						const key = `${order.id}:${station}:${batch.batchId || ""}`;
+						if (rendered.has(key)) return false;
+						rendered.add(key);
+						return true;
+					})
 					.map((batch) => orderCard(order, `station:${station}:${encodeURIComponent(batch.batchId || "")}`))
 			));
 			return `<div class="column"><h2>${stationLabels[station]} - ${column.title}</h2><div class="order-list">${cards.join("") || `<p class="empty">Nothing here.</p>`}</div></div>`;
