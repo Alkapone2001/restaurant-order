@@ -41,6 +41,8 @@ const state = {
 	closeDay: { countedCash: "", note: "" },
 	toast: "",
 	orderSnapshot: {},
+	ordersRevision: 0,
+	pendingStatusActions: {},
 	audioReady: localStorage.getItem("restaurant_alerts_enabled") === "true",
 	audioContext: null,
 };
@@ -361,15 +363,21 @@ async function logout(callApi = true) {
 
 async function refreshOrders(silent) {
 	if (!state.token) return;
+	const revision = state.ordersRevision;
 	try {
 		const [orders, tableLocks] = await Promise.all([
 			api("/api/orders"),
 			api("/api/table-locks"),
 		]);
-		if (silent) detectOrderNotifications(orders);
-		else primeOrderSnapshot(orders);
-		state.orders = orders;
 		state.tableLocks = tableLocks;
+		if (revision !== state.ordersRevision) return;
+		const currentOrders = new Map(state.orders.map((order) => [order.id, order]));
+		const nextOrders = orders.map((order) =>
+			orderHasPendingStatus(order.id) ? (currentOrders.get(order.id) || order) : order,
+		);
+		if (silent) detectOrderNotifications(nextOrders);
+		else primeOrderSnapshot(nextOrders);
+		state.orders = nextOrders;
 		if (!silent) render();
 	} catch (error) {
 		if (!silent) toast(error.message);
@@ -465,6 +473,7 @@ async function sendOrder() {
 		state.orders = existing
 			? state.orders.map((item) => (item.id === order.id ? order : item))
 			: [order].concat(state.orders);
+		state.ordersRevision += 1;
 		state.orderSnapshot[order.id] = snapshotOrder(order);
 		state.selectedOrderId = order.id;
 		state.table = order.table;
@@ -478,6 +487,10 @@ async function sendOrder() {
 }
 
 async function setStatus(orderId, status, station, batchId) {
+	const actionKey = statusActionKey(orderId, station, batchId);
+	if (state.pendingStatusActions[actionKey]) return;
+	state.pendingStatusActions[actionKey] = status;
+	render();
 	try {
 		const path = station
 			? `/api/orders/${orderId}/stations/${station}/status`
@@ -490,6 +503,9 @@ async function setStatus(orderId, status, station, batchId) {
 		toast(`Order #${order.number}: ${station ? `${stationLabels[station]} ` : ""}${statusLabels[status]}`);
 	} catch (error) {
 		toast(error.message);
+	} finally {
+		delete state.pendingStatusActions[actionKey];
+		render();
 	}
 }
 
@@ -571,6 +587,7 @@ function replaceOrder(order) {
 	state.orders = state.orders.map((item) =>
 		item.id === order.id ? order : item,
 	);
+	state.ordersRevision += 1;
 	state.orderSnapshot[order.id] = snapshotOrder(order);
 	render();
 }
@@ -814,6 +831,14 @@ function stationContextParts(context) {
 	};
 }
 
+function statusActionKey(orderId, station, batchId) {
+	return `${orderId}:${station || "order"}:${batchId || ""}`;
+}
+
+function orderHasPendingStatus(orderId) {
+	return Object.keys(state.pendingStatusActions).some((key) => key.indexOf(`${orderId}:`) === 0);
+}
+
 function stationBatchEntries(order, station) {
 	const status = order.stationStatuses && order.stationStatuses[station];
 	if (!status) return [];
@@ -953,11 +978,13 @@ function orderActions(order, context) {
 			? order.stationStatuses[station].batches[batchId]
 			: order.stationStatuses && order.stationStatuses[station];
 		const stationStatus = batch ? batch.status : "";
+		const pendingStatus = state.pendingStatusActions[statusActionKey(order.id, station, batchId)] || "";
+		const statusPending = Boolean(pendingStatus);
 		return `
       <div class="order-actions">
-        <button class="small-action" data-action="status" data-id="${order.id}" data-station="${station}" data-batch-id="${escapeHtml(batchId)}" data-status="received" ${stationStatus !== "sent" ? "disabled" : ""}>Confirm</button>
-        <button class="small-action" data-action="status" data-id="${order.id}" data-station="${station}" data-batch-id="${escapeHtml(batchId)}" data-status="preparing" ${stationStatus !== "received" ? "disabled" : ""}>Prepare</button>
-        <button class="small-action ready" data-action="status" data-id="${order.id}" data-station="${station}" data-batch-id="${escapeHtml(batchId)}" data-status="done" ${["received", "preparing"].indexOf(stationStatus) === -1 ? "disabled" : ""}>Done</button>
+        <button class="small-action" data-action="status" data-id="${order.id}" data-station="${station}" data-batch-id="${escapeHtml(batchId)}" data-status="received" ${statusPending || stationStatus !== "sent" ? "disabled" : ""}>${pendingStatus === "received" ? "Saving..." : "Confirm"}</button>
+        <button class="small-action" data-action="status" data-id="${order.id}" data-station="${station}" data-batch-id="${escapeHtml(batchId)}" data-status="preparing" ${statusPending || stationStatus !== "received" ? "disabled" : ""}>${pendingStatus === "preparing" ? "Saving..." : "Prepare"}</button>
+        <button class="small-action ready" data-action="status" data-id="${order.id}" data-station="${station}" data-batch-id="${escapeHtml(batchId)}" data-status="done" ${statusPending || ["received", "preparing"].indexOf(stationStatus) === -1 ? "disabled" : ""}>${pendingStatus === "done" ? "Saving..." : "Done"}</button>
       </div>
     `;
 	}
