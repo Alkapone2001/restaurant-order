@@ -16,6 +16,8 @@ const state = {
 	takeAwayNewOrder: false,
 	orderNotes: "",
 	cart: [],
+	orderSubmission: readOrderSubmission(),
+	orderSending: false,
 	search: "",
 	category: "",
 	headWaiterFilter: "mine",
@@ -46,6 +48,44 @@ const state = {
 	audioReady: localStorage.getItem("restaurant_alerts_enabled") === "true",
 	audioContext: null,
 };
+
+function readOrderSubmission() {
+	try {
+		return JSON.parse(localStorage.getItem("restaurant_order_submission") || "null");
+	} catch (error) {
+		localStorage.removeItem("restaurant_order_submission");
+		return null;
+	}
+}
+
+function saveOrderSubmission(submission) {
+	state.orderSubmission = submission;
+	if (submission) localStorage.setItem("restaurant_order_submission", JSON.stringify(submission));
+	else localStorage.removeItem("restaurant_order_submission");
+}
+
+function restoreOrderSubmission() {
+	const submission = state.orderSubmission;
+	if (!submission) return;
+	if (!state.me || submission.userId !== state.me.id || !submission.payload) {
+		saveOrderSubmission(null);
+		return;
+	}
+	state.table = submission.payload.takeAway ? "" : submission.payload.table;
+	state.takeAway = submission.payload.takeAway === true;
+	state.takeAwayNewOrder = submission.payload.forceNew === true;
+	state.orderNotes = submission.payload.notes || "";
+	state.cart = (submission.payload.items || []).map((item) => ({ ...item }));
+}
+
+function orderDraftLocked() {
+	return Boolean(state.orderSubmission);
+}
+
+function newRequestKey() {
+	if (window.crypto && typeof window.crypto.randomUUID === "function") return window.crypto.randomUUID();
+	return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
 
 const app = document.getElementById("app");
 const statusLabels = {
@@ -271,7 +311,9 @@ async function api(path, options) {
 	const data = await response.json();
 	if (!response.ok) {
 		if (response.status === 401) logout(false);
-		throw new Error(data.error || "Request failed");
+		const error = new Error(data.error || "Request failed");
+		error.status = response.status;
+		throw error;
 	}
 	return data;
 }
@@ -313,6 +355,7 @@ async function bootstrap() {
 		state.products = data.products;
 		state.orders = data.orders;
 		state.tableLocks = data.tableLocks || [];
+		restoreOrderSubmission();
 		if (["kitchen", "bartender", "pizzaman"].indexOf(state.me.role) > -1) {
 			state.view = defaultViewForRole(state.me.role);
 		}
@@ -427,6 +470,8 @@ function cartTotal() {
 }
 
 function canSendOrder() {
+	if (state.orderSending) return false;
+	if (state.orderSubmission) return true;
 	if (!state.cart.length) return false;
 	if (state.takeAway) return true;
 	if (!state.table) return false;
@@ -435,6 +480,7 @@ function canSendOrder() {
 }
 
 function addProduct(productId) {
+	if (orderDraftLocked()) return;
 	const product = state.products.find((item) => item.id === productId);
 	if (!product || product.available === false) return;
 	const existing = state.cart.find((item) => item.productId === productId);
@@ -444,6 +490,7 @@ function addProduct(productId) {
 }
 
 function updateCart(productId, amount) {
+	if (orderDraftLocked()) return;
 	const item = state.cart.find(
 		(candidate) => candidate.productId === productId,
 	);
@@ -457,17 +504,27 @@ function updateCart(productId, amount) {
 }
 
 async function sendOrder() {
-	try {
+	if (state.orderSending) return;
+	if (!state.orderSubmission) {
 		const table = state.takeAway ? "Me Veti" : state.table;
-		const order = await api("/api/orders", {
-			method: "POST",
-			body: JSON.stringify({
+		saveOrderSubmission({
+			userId: state.me.id,
+			payload: {
+				requestKey: newRequestKey(),
 				table,
 				takeAway: state.takeAway,
 				forceNew: state.takeAway && state.takeAwayNewOrder,
 				notes: state.orderNotes,
-				items: state.cart,
-			}),
+				items: state.cart.map((item) => ({ ...item })),
+			},
+		});
+	}
+	state.orderSending = true;
+	render();
+	try {
+		const order = await api("/api/orders", {
+			method: "POST",
+			body: JSON.stringify(state.orderSubmission.payload),
 		});
 		const existing = state.orders.some((item) => item.id === order.id);
 		state.orders = existing
@@ -480,9 +537,14 @@ async function sendOrder() {
 		state.takeAwayNewOrder = false;
 		state.orderNotes = "";
 		state.cart = [];
+		saveOrderSubmission(null);
 		toast(order.appendedToExisting ? `Added to order #${order.number} (${order.table})` : `Order #${order.number} sent`);
 	} catch (error) {
-		toast(error.message);
+		if (error.status) saveOrderSubmission(null);
+		toast(error.status ? error.message : "Connection interrupted. Tap Send order to retry the same ticket.");
+	} finally {
+		state.orderSending = false;
+		render();
 	}
 }
 
@@ -814,8 +876,7 @@ function canPayOrder(order) {
 
 function canCancelOrder(order) {
 	if (!state.me || order.paymentStatus !== "open") return false;
-	if (state.me.role === "admin") return true;
-	return state.me.role === "waiter" && order.waiterId === state.me.id;
+	return state.me.role === "admin";
 }
 
 function isAutoPizzaBrut(item) {
@@ -936,13 +997,16 @@ function orderCard(order, context) {
 				.map((key) => `<span class="status ${order.stationStatuses[key].status}">${stationLabels[key]}: ${statusLabels[order.stationStatuses[key].status]}</span>`)
 				.join("")
 		: "";
+	const displayedAt = stationContext
+		? (stationBatchId || (batchStatus && batchStatus.batchId) || order.createdAt)
+		: order.createdAt;
 
 	return `
     <article class="order-card ${order.paymentStatus !== "open" ? "closed" : ""}">
       <div class="order-card-header">
         <div>
           <h3>#${order.number} - ${edit ? `<input class="input compact" data-action="edit-order-table" data-id="${order.id}" value="${escapeHtml(edit.table)}">` : escapeHtml(order.table)}</h3>
-          <p>${escapeHtml(order.waiterName)} - ${new Date(order.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>
+          <p>${escapeHtml(order.waiterName)} - ${new Date(displayedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>
         </div>
         <span class="status ${status}">${statusLabels[status] || status}</span>
       </div>
@@ -1031,7 +1095,7 @@ function renderTableSelector() {
 					const label = /^\d+$/.test(table) ? table : table.replace(" ", "\u00a0");
 					const meta = occupiedByOther ? escapeHtml(lock.waiterName) : ownOrder ? `#${ownOrder.number}` : "";
 					return `
-          <button class="table-button ${free ? "free" : ""} ${active ? "active" : ""} ${ownOrder ? "own" : ""} ${occupiedByOther ? "occupied" : ""}" data-action="select-table" data-table="${escapeHtml(table)}" ${occupiedByOther ? "disabled" : ""}>
+          <button class="table-button ${free ? "free" : ""} ${active ? "active" : ""} ${ownOrder ? "own" : ""} ${occupiedByOther ? "occupied" : ""}" data-action="select-table" data-table="${escapeHtml(table)}" ${occupiedByOther || orderDraftLocked() ? "disabled" : ""}>
             <strong>${escapeHtml(label)}</strong>
             ${meta ? `<span>${meta}</span>` : ""}
           </button>
@@ -1043,8 +1107,8 @@ function renderTableSelector() {
 	return `
     <div data-waiter-table-controls>
     <div class="take-away-row">
-      <button class="choice-button ${state.takeAway ? "active" : ""}" data-action="toggle-take-away" type="button">Me Veti</button>
-      ${state.takeAway ? `<label class="check"><input type="checkbox" data-action="take-away-new-order" ${state.takeAwayNewOrder ? "checked" : ""}> Separate order</label>` : ""}
+      <button class="choice-button ${state.takeAway ? "active" : ""}" data-action="toggle-take-away" type="button" ${orderDraftLocked() ? "disabled" : ""}>Me Veti</button>
+      ${state.takeAway ? `<label class="check"><input type="checkbox" data-action="take-away-new-order" ${state.takeAwayNewOrder ? "checked" : ""} ${orderDraftLocked() ? "disabled" : ""}> Separate order</label>` : ""}
     </div>
     <div class="table-legend">
       <span><i class="legend-dot free"></i>Free</span>
@@ -1150,7 +1214,7 @@ function renderWaiter() {
 	const products = menuProducts(false)
 		.map(
 			(product) => `
-    <button class="product" data-action="add-product" data-id="${product.id}">
+    <button class="product" data-action="add-product" data-id="${product.id}" ${orderDraftLocked() ? "disabled" : ""}>
       <strong>${escapeHtml(product.name)}</strong><span>${escapeHtml(product.category)}</span><span class="price">${money(product.price)}</span>
     </button>
   `,
@@ -1164,8 +1228,8 @@ function renderWaiter() {
 			if (!product) return "";
 			return `
       <div class="cart-item">
-        <div><h3>${escapeHtml(product.name)}</h3><p>${money(product.price)} each</p><input class="input" data-action="cart-note" data-id="${product.id}" value="${escapeHtml(item.note)}" placeholder="Kitchen note"></div>
-        <div class="quantity"><button class="icon-button" data-action="cart-minus" data-id="${product.id}">-</button><strong>${item.quantity}</strong><button class="icon-button" data-action="cart-plus" data-id="${product.id}">+</button></div>
+        <div><h3>${escapeHtml(product.name)}</h3><p>${money(product.price)} each</p><input class="input" data-action="cart-note" data-id="${product.id}" value="${escapeHtml(item.note)}" placeholder="Kitchen note" ${orderDraftLocked() ? "disabled" : ""}></div>
+        <div class="quantity"><button class="icon-button" data-action="cart-minus" data-id="${product.id}" ${orderDraftLocked() ? "disabled" : ""}>-</button><strong>${item.quantity}</strong><button class="icon-button" data-action="cart-plus" data-id="${product.id}" ${orderDraftLocked() ? "disabled" : ""}>+</button></div>
       </div>
     `;
 		})
@@ -1183,14 +1247,14 @@ function renderWaiter() {
 									`<option value="${category}" ${state.category === category ? "selected" : ""}>${category === "" ? "Choose category" : category === "all" ? "All categories" : escapeHtml(category)}</option>`,
 							)
 							.join("")}</select></div>
-            <div class="field full"><label>Order note</label><textarea class="textarea" data-action="order-notes">${escapeHtml(state.orderNotes)}</textarea></div>
+            <div class="field full"><label>Order note</label><textarea class="textarea" data-action="order-notes" ${orderDraftLocked() ? "disabled" : ""}>${escapeHtml(state.orderNotes)}</textarea></div>
           </div>
           <div class="order-target-summary" data-order-target-summary>${renderSelectedTableSummary()}</div>
           <div class="product-grid">${products || `<p class="empty">${state.search.trim() || state.category ? "No available products." : "Search or choose a category to show products."}</p>`}</div>
         </div>
       </section>
       <aside class="panel"><div class="panel-header"><div><h2>Ticket</h2><p>${state.cart.length} item${state.cart.length === 1 ? "" : "s"}</p></div></div>
-        <div class="panel-body"><div class="cart-list">${cart || `<p class="empty">Tap products to add them.</p>`}</div><div class="cart-footer"><div class="total-row"><span>Total</span><span>${money(cartTotal())}</span></div><button class="primary" data-action="send-order" ${canSendOrder() ? "" : "disabled"}>Send order</button></div></div>
+        <div class="panel-body"><div class="cart-list">${cart || `<p class="empty">Tap products to add them.</p>`}</div><div class="cart-footer"><div class="total-row"><span>Total</span><span>${money(cartTotal())}</span></div><button class="primary" data-action="send-order" ${canSendOrder() ? "" : "disabled"}>${state.orderSending ? "Sending..." : state.orderSubmission ? "Retry send" : "Send order"}</button></div></div>
       </aside>
       <section class="panel span"><div class="panel-header"><div><h2>My active orders</h2><p>Close paid orders only after every required station marks its part done.</p></div></div><div class="panel-body"><div class="order-list" data-active-orders>${renderWaiterActiveOrders()}</div></div></section>
     </div>
@@ -1423,6 +1487,7 @@ app.addEventListener("click", async (event) => {
 		return;
 	}
 	const action = target.dataset.action;
+	if (orderDraftLocked() && ["add-product", "cart-minus", "cart-plus", "select-table", "select-active-order", "toggle-take-away"].indexOf(action) !== -1) return;
 	if (action === "enable-sound") {
 		await enableAlerts();
 		playTone("ready");
@@ -1523,6 +1588,7 @@ app.addEventListener("click", async (event) => {
 app.addEventListener("input", (event) => {
 	const t = event.target;
 	const action = t.dataset.action;
+	if (orderDraftLocked() && ["table", "order-notes", "cart-note"].indexOf(action) !== -1) return;
 	if (action === "login-username") state.login.username = t.value;
 	if (action === "login-password") state.login.password = t.value;
 	if (action === "table") state.table = t.value;
@@ -1561,6 +1627,7 @@ app.addEventListener("input", (event) => {
 app.addEventListener("change", async (event) => {
 	const t = event.target;
 	const action = t.dataset.action;
+	if (orderDraftLocked() && action === "take-away-new-order") return;
 	if (action === "category") {
 		state.category = t.value;
 		render();

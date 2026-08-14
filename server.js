@@ -2,6 +2,7 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const { handleApi } = require("./lib/api");
+const { runDailyRollover, millisecondsUntilNextBusinessDay } = require("./lib/repository");
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, "public");
@@ -54,4 +55,19 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, () => {
   console.log(`Restaurant ordering app running at http://localhost:${PORT}`);
+  runDailyRollover().catch(error => console.error("Daily rollover failed:", error));
+  scheduleDailyRollover();
 });
+
+function scheduleDailyRollover() {
+  const timer = setTimeout(async () => {
+    try {
+      await runDailyRollover();
+    } catch (error) {
+      console.error("Daily rollover failed:", error);
+    } finally {
+      scheduleDailyRollover();
+    }
+  }, millisecondsUntilNextBusinessDay());
+  timer.unref();
+}
