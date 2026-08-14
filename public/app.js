@@ -79,7 +79,7 @@ function restoreOrderSubmission() {
 }
 
 function orderDraftLocked() {
-	return Boolean(state.orderSubmission);
+	return state.orderSending;
 }
 
 function newRequestKey() {
