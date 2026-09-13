@@ -88,6 +88,7 @@ function newRequestKey() {
 }
 
 const app = document.getElementById("app");
+let refreshInFlight = false;
 const statusLabels = {
 	sent: "Sent",
 	received: "Received",
@@ -405,15 +406,24 @@ async function logout(callApi = true) {
 }
 
 async function refreshOrders(silent) {
-	if (!state.token) return;
+	if (!state.token || refreshInFlight) return false;
+	refreshInFlight = true;
 	const revision = state.ordersRevision;
 	try {
 		const [orders, tableLocks] = await Promise.all([
 			api("/api/orders"),
 			api("/api/table-locks"),
 		]);
+		const changed = orders.length !== state.orders.length
+			|| orders.some((order, index) => !state.orders[index]
+				|| order.id !== state.orders[index].id
+				|| order.updatedAt !== state.orders[index].updatedAt)
+			|| tableLocks.length !== state.tableLocks.length
+			|| tableLocks.some((lock, index) => !state.tableLocks[index]
+				|| lock.orderId !== state.tableLocks[index].orderId
+				|| lock.waiterId !== state.tableLocks[index].waiterId);
 		state.tableLocks = tableLocks;
-		if (revision !== state.ordersRevision) return;
+		if (revision !== state.ordersRevision) return false;
 		const currentOrders = new Map(state.orders.map((order) => [order.id, order]));
 		const nextOrders = orders.map((order) =>
 			orderHasPendingStatus(order.id) ? (currentOrders.get(order.id) || order) : order,
@@ -422,8 +432,12 @@ async function refreshOrders(silent) {
 		else primeOrderSnapshot(nextOrders);
 		state.orders = nextOrders;
 		if (!silent) render();
+		return changed;
 	} catch (error) {
 		if (!silent) toast(error.message);
+		return false;
+	} finally {
+		refreshInFlight = false;
 	}
 }
 
@@ -1661,8 +1675,9 @@ app.addEventListener("change", async (event) => {
 
 bootstrap();
 setInterval(async () => {
-	if (!state.me) return;
-	await refreshOrders(true);
+	if (!state.me || document.visibilityState === "hidden") return;
+	const changed = await refreshOrders(true);
+	if (!changed) return;
 	if (shouldPatchWaiterOrders()) {
 		if (!patchWaiterActiveOrders()) render();
 		return;

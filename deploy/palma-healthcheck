@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -u
+
+if systemctl is-active --quiet palma-deploy.service; then
+  exit 0
+fi
+
+health_url=http://127.0.0.1:3000/api/health
+if curl --fail --silent --show-error --max-time 5 "$health_url" >/dev/null; then
+  exit 0
+fi
+
+sleep 3
+if curl --fail --silent --show-error --max-time 5 "$health_url" >/dev/null; then
+  exit 0
+fi
+
+logger -t palma-healthcheck "Application failed two health checks; restarting palma.service"
+systemctl restart palma.service

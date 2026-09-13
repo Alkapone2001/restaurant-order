@@ -1,0 +1,7 @@
+[Unit]
+Description=Check Restaurant Order application health
+After=network-online.target palma.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/palma-healthcheck

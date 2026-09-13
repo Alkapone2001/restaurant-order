@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Restaurant Order application health check every minute
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=5s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
