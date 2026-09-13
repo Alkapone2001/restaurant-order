@@ -3,8 +3,10 @@ const fs = require("fs");
 const path = require("path");
 const { handleApi } = require("./lib/api");
 const { runDailyRollover, millisecondsUntilNextBusinessDay } = require("./lib/repository");
+const { closeDb } = require("./lib/db");
 
 const PORT = process.env.PORT || 3000;
+const HOST = process.env.HOST || "0.0.0.0";
 const PUBLIC_DIR = path.join(__dirname, "public");
 
 const MIME_TYPES = {
@@ -53,11 +55,34 @@ const server = http.createServer((req, res) => {
   serveStatic(req, res);
 });
 
-server.listen(PORT, () => {
-  console.log(`Restaurant ordering app running at http://localhost:${PORT}`);
+server.requestTimeout = 30000;
+server.headersTimeout = 35000;
+server.keepAliveTimeout = 5000;
+
+server.listen(PORT, HOST, () => {
+  console.log(`Restaurant ordering app listening on ${HOST}:${PORT}`);
   runDailyRollover().catch(error => console.error("Daily rollover failed:", error));
   scheduleDailyRollover();
 });
+
+let shuttingDown = false;
+async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`${signal} received; shutting down gracefully.`);
+  server.close(async error => {
+    try {
+      await closeDb();
+    } catch (dbError) {
+      console.error("Database shutdown failed:", dbError);
+    }
+    process.exit(error ? 1 : 0);
+  });
+  setTimeout(() => process.exit(1), 10000).unref();
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
 
 function scheduleDailyRollover() {
   const timer = setTimeout(async () => {
