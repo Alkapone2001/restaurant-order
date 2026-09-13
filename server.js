@@ -36,18 +36,31 @@ function serveStatic(req, res) {
           res.end("Not found");
           return;
         }
-        res.writeHead(200, { "Content-Type": MIME_TYPES[".html"] });
+        res.writeHead(200, {
+          "Content-Type": MIME_TYPES[".html"],
+          "Cache-Control": "no-cache"
+        });
         res.end(fallback);
       });
       return;
     }
 
-    res.writeHead(200, { "Content-Type": MIME_TYPES[path.extname(filePath)] || "application/octet-stream" });
+    const extension = path.extname(filePath);
+    const headers = { "Content-Type": MIME_TYPES[extension] || "application/octet-stream" };
+    if (extension === ".html" || extension === ".js") headers["Cache-Control"] = "no-cache";
+    res.writeHead(200, headers);
     res.end(content);
   });
 }
 
 const server = http.createServer((req, res) => {
+  const startedAt = process.hrtime.bigint();
+  res.once("finish", () => {
+    const durationMs = Number(process.hrtime.bigint() - startedAt) / 1000000;
+    if (durationMs >= 1000) {
+      console.warn(`Slow request: ${req.method} ${req.url.split("?")[0]} ${res.statusCode} ${Math.round(durationMs)}ms`);
+    }
+  });
   if (req.url.startsWith("/api/")) {
     handleApi(req, res);
     return;
