@@ -1,6 +1,6 @@
 # Restaurant Orders
 
-A restaurant ordering app with waiter order-taking, kitchen status control, payment closing, daily reporting, role-based login, menu administration, staff management, and audit history.
+A restaurant ordering app with waiter order-taking, payment closing, daily reporting, role-based login (admin and waiter), menu administration, staff management, and audit history.
 
 The app now stores data in Postgres, not JSON files. The backend is split so it can run locally with `server.js` and on Vercel through `api/index.js`.
 
@@ -136,20 +136,15 @@ Change these immediately before real use.
 
 | Role | Username | Password |
 | --- | --- | --- |
-| Admin/manager | `valon` | `palma5valon` |
-| Kitchen | `kitchen` | `kitchen123` |
-| Bartender | `bartender` | `bar123` |
-| Pizzaman | `pizzaman` | `pizza123` |
+| Admin | `valon` | `palma5valon` |
+
+Waiters are created by the admin in the Staff tab.
 
 ## Main Workflows
 
-- Waiter creates a table order and sends it to the correct preparation stations.
-- Products are assigned to fixed menu categories. Pizza routes to the pizzaman dashboard, drinks and coctails route to the bartender dashboard, and all other food categories route to the kitchen dashboard.
-- Kitchen, bartender, and pizzaman each confirm, prepare, and mark their assigned items done.
-- Waiter closes done orders as paid with payment method, discount, and tip.
-- Admin views daily reports, voids, payment-method totals, and waiter totals.
-- Admin manages products in the Menu tab.
-- Admin creates, edits, activates, and removes waiters in the Staff tab.
+- Waiter creates a table order and sends it. Waiters see only their own open orders.
+- Orders have no preparation status. Waiter (own orders) or admin (any open order) marks an order paid with payment method, discount, and tip, or cancels it (admin only).
+- Admin has the same page as waiters, plus Reports (per-waiter totals, voids, payment methods), Staff (add, edit, remove waiters), and Menu (products and prices).
 - Important actions are stored in the audit log.
 
 ## Environment Variables

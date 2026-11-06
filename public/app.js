@@ -20,7 +20,6 @@ const state = {
 	orderSending: false,
 	search: "",
 	category: "",
-	headWaiterFilter: "mine",
 	managerWaiterFilter: "all",
 	reportDate: new Date().toISOString().slice(0, 10),
 	payment: {
@@ -42,9 +41,7 @@ const state = {
 	orderEdits: {},
 	closeDay: { countedCash: "", note: "" },
 	toast: "",
-	orderSnapshot: {},
 	ordersRevision: 0,
-	pendingStatusActions: {},
 	audioReady: localStorage.getItem("restaurant_alerts_enabled") === "true",
 	audioContext: null,
 };
@@ -89,16 +86,6 @@ function newRequestKey() {
 
 const app = document.getElementById("app");
 let refreshInFlight = false;
-const statusLabels = {
-	sent: "Sent",
-	received: "Received",
-	preparing: "Preparing",
-	done: "Done",
-	paid: "Paid",
-	canceled: "Canceled",
-};
-const statusRank = { sent: 1, received: 2, preparing: 3, done: 4 };
-const stationLabels = { bar: "Bartender", pizza: "Pizzaman", kitchen: "Kitchen", manager: "Manager" };
 const tableSections = [
 	{ title: "Tables", tables: Array.from({ length: 18 }, (_, index) => String(index + 1)) },
 	{ title: "Terasa", tables: ["Terasa 1", "Terasa 2"] },
@@ -243,64 +230,6 @@ function notify(title, body, kind) {
 	}
 }
 
-function stationForCurrentView() {
-	if (!state.me) return "";
-	if (state.me.role === "bartender") return "bar";
-	if (state.me.role === "pizzaman") return "pizza";
-	if (state.me.role === "kitchen") return "kitchen";
-	if (["bar", "pizza", "kitchen"].indexOf(state.view) > -1) return state.view;
-	return "";
-}
-
-function snapshotOrder(order) {
-	const stationStatuses = {};
-	Object.keys(order.stationStatuses || {}).forEach((station) => {
-		stationStatuses[station] = order.stationStatuses[station].status;
-	});
-	return {
-		status: order.status,
-		paymentStatus: order.paymentStatus,
-		stationStatuses,
-	};
-}
-
-function primeOrderSnapshot(orders) {
-	state.orderSnapshot = {};
-	orders.forEach((order) => {
-		state.orderSnapshot[order.id] = snapshotOrder(order);
-	});
-}
-
-function detectOrderNotifications(nextOrders) {
-	if (!state.me) return;
-	const previous = state.orderSnapshot || {};
-	const station = stationForCurrentView();
-	let newStationOrder = false;
-	let waiterReadyOrder = false;
-
-	nextOrders.forEach((order) => {
-		const before = previous[order.id];
-		if (station && order.stationStatuses && order.stationStatuses[station]) {
-			const beforeStation = before && before.stationStatuses ? before.stationStatuses[station] : "";
-			const nextStation = order.stationStatuses[station].status;
-			if ((!beforeStation || (beforeStation !== "sent" && nextStation === "sent")) && order.paymentStatus === "open") newStationOrder = true;
-		}
-		if (state.me.role === "waiter" && before && before.status !== "done" && order.status === "done" && order.paymentStatus === "open") {
-			waiterReadyOrder = true;
-		}
-	});
-
-	if (newStationOrder) {
-		notify("New order received", "A new order arrived for this station.", "new");
-		toast("New order received");
-	}
-	if (waiterReadyOrder) {
-		notify("Order ready for pickup", "An order is fully done.", "ready");
-		toast("Order ready for pickup");
-	}
-	primeOrderSnapshot(nextOrders);
-}
-
 async function api(path, options) {
 	const response = await fetch(path, {
 		headers: {
@@ -321,26 +250,8 @@ async function api(path, options) {
 
 function allowedViews() {
 	if (!state.me) return [];
-	if (state.me.role === "admin")
-		return ["waiter", "bar", "pizza", "kitchen", "reports", "staff", "admin"];
-	if (state.me.role === "kitchen") return ["kitchen"];
-	if (state.me.role === "bartender") return ["bar"];
-	if (state.me.role === "pizzaman") return ["pizza"];
+	if (state.me.role === "admin") return ["waiter", "reports", "staff", "admin"];
 	return ["waiter"];
-}
-
-function defaultViewForRole(role) {
-	if (role === "kitchen") return "kitchen";
-	if (role === "bartender") return "bar";
-	if (role === "pizzaman") return "pizza";
-	return "waiter";
-}
-
-function isHeadWaiter() {
-	if (!state.me || state.me.role !== "waiter") return false;
-	const username = String(state.me.username || "").trim().toLowerCase();
-	const firstName = String(state.me.name || "").trim().toLowerCase().split(/\s+/)[0];
-	return username === "arben" || firstName === "arben";
 }
 
 async function bootstrap() {
@@ -357,14 +268,10 @@ async function bootstrap() {
 		state.orders = data.orders;
 		state.tableLocks = data.tableLocks || [];
 		restoreOrderSubmission();
-		if (["kitchen", "bartender", "pizzaman"].indexOf(state.me.role) > -1) {
-			state.view = defaultViewForRole(state.me.role);
-		}
 		if (allowedViews().indexOf(state.view) === -1)
 			state.view = allowedViews()[0];
 		if (state.view === "reports") await loadReport();
 		if (state.view === "admin" || state.view === "staff") await loadAudit();
-		primeOrderSnapshot(state.orders);
 		render();
 	} catch (error) {
 		toast(error.message);
@@ -382,7 +289,7 @@ async function login() {
 		localStorage.setItem("restaurant_token", state.token);
 		if (state.audioReady) ensureAudio();
 		state.me = data.user;
-		state.view = defaultViewForRole(data.user.role);
+		state.view = "waiter";
 		await bootstrap();
 		if (state.audioReady) enablePushNotifications();
 		toast(`Logged in as ${data.user.name}`);
@@ -401,7 +308,6 @@ async function logout(callApi = true) {
 	state.token = "";
 	state.me = null;
 	state.orders = [];
-	state.orderSnapshot = {};
 	render();
 }
 
@@ -422,14 +328,9 @@ async function refreshOrders(silent) {
 			|| tableLocks.some((lock, index) => !state.tableLocks[index]
 				|| lock.orderId !== state.tableLocks[index].orderId
 				|| lock.waiterId !== state.tableLocks[index].waiterId);
+		const nextOrders = orders;
 		state.tableLocks = tableLocks;
 		if (revision !== state.ordersRevision) return false;
-		const currentOrders = new Map(state.orders.map((order) => [order.id, order]));
-		const nextOrders = orders.map((order) =>
-			orderHasPendingStatus(order.id) ? (currentOrders.get(order.id) || order) : order,
-		);
-		if (silent) detectOrderNotifications(nextOrders);
-		else primeOrderSnapshot(nextOrders);
 		state.orders = nextOrders;
 		if (!silent) render();
 		return changed;
@@ -545,7 +446,6 @@ async function sendOrder() {
 			? state.orders.map((item) => (item.id === order.id ? order : item))
 			: [order].concat(state.orders);
 		state.ordersRevision += 1;
-		state.orderSnapshot[order.id] = snapshotOrder(order);
 		state.selectedOrderId = order.id;
 		state.table = order.table;
 		state.takeAwayNewOrder = false;
@@ -558,29 +458,6 @@ async function sendOrder() {
 		toast(error.status ? error.message : "Connection interrupted. Tap Send order to retry the same ticket.");
 	} finally {
 		state.orderSending = false;
-		render();
-	}
-}
-
-async function setStatus(orderId, status, station, batchId) {
-	const actionKey = statusActionKey(orderId, station, batchId);
-	if (state.pendingStatusActions[actionKey]) return;
-	state.pendingStatusActions[actionKey] = status;
-	render();
-	try {
-		const path = station
-			? `/api/orders/${orderId}/stations/${station}/status`
-			: `/api/orders/${orderId}/status`;
-		const order = await api(path, {
-			method: "PATCH",
-			body: JSON.stringify({ status, batchId: batchId || "" }),
-		});
-		replaceOrder(order);
-		toast(`Order #${order.number}: ${station ? `${stationLabels[station]} ` : ""}${statusLabels[status]}`);
-	} catch (error) {
-		toast(error.message);
-	} finally {
-		delete state.pendingStatusActions[actionKey];
 		render();
 	}
 }
@@ -664,7 +541,6 @@ function replaceOrder(order) {
 		item.id === order.id ? order : item,
 	);
 	state.ordersRevision += 1;
-	state.orderSnapshot[order.id] = snapshotOrder(order);
 	render();
 }
 
@@ -849,9 +725,7 @@ function visibleActiveOrders() {
 		if (state.managerWaiterFilter === "all") return orders;
 		return orders.filter((order) => order.waiterId === state.managerWaiterFilter);
 	}
-	if (!isHeadWaiter()) return orders;
-	if (state.headWaiterFilter === "mine") return orders.filter((order) => order.waiterId === state.me.id);
-	return orders.filter((order) => order.waiterId === state.headWaiterFilter);
+	return orders;
 }
 
 function closedOrders() {
@@ -861,15 +735,6 @@ function closedOrders() {
 function waiterNameFor(id, fallback) {
 	const waiter = state.users.find((user) => user.id === id);
 	return waiter ? waiter.name : fallback;
-}
-
-function waiterOptionsForHeadWaiter() {
-	const byId = new Map();
-	activeOrders().forEach((order) => {
-		if (isHeadWaiter() && order.waiterId === state.me.id) return;
-		byId.set(order.waiterId, waiterNameFor(order.waiterId, order.waiterName));
-	});
-	return Array.from(byId.entries()).sort((a, b) => a[1].localeCompare(b[1]));
 }
 
 function groupedActiveOrders() {
@@ -882,53 +747,14 @@ function groupedActiveOrders() {
 }
 
 function canPayOrder(order) {
-	if (!state.me || order.paymentStatus !== "open" || order.status !== "done") return false;
+	if (!state.me || order.paymentStatus !== "open") return false;
 	if (state.me.role === "admin") return true;
-	if (state.me.role !== "waiter") return false;
-	return order.waiterId === state.me.id || isHeadWaiter();
+	return order.waiterId === state.me.id;
 }
 
 function canCancelOrder(order) {
 	if (!state.me || order.paymentStatus !== "open") return false;
 	return state.me.role === "admin";
-}
-
-function isAutoPizzaBrut(item) {
-	return item && item.productId === "auto_pizza_brut";
-}
-
-function stationContextParts(context) {
-	if (!context || context.indexOf("station:") !== 0) return { station: "", batchId: "" };
-	const match = context.match(/^station:([^:]+)(?::(.+))?$/);
-	return {
-		station: match ? match[1] : "",
-		batchId: match && match[2] ? decodeURIComponent(match[2]) : "",
-	};
-}
-
-function statusActionKey(orderId, station, batchId) {
-	return `${orderId}:${station || "order"}:${batchId || ""}`;
-}
-
-function orderHasPendingStatus(orderId) {
-	return Object.keys(state.pendingStatusActions).some((key) => key.indexOf(`${orderId}:`) === 0);
-}
-
-function stationBatchEntries(order, station) {
-	const status = order.stationStatuses && order.stationStatuses[station];
-	if (!status) return [];
-	if (status.batches && Object.keys(status.batches).length) {
-		return Object.keys(status.batches).map((batchId) => ({
-			batchId,
-			...status.batches[batchId],
-		}));
-	}
-	return [{
-		batchId: status.batchId || "",
-		status: status.status,
-		updatedAt: status.updatedAt,
-		updatedBy: status.updatedBy,
-	}];
 }
 
 function canEditOrder(order, context) {
@@ -941,7 +767,7 @@ function renderOrderEditItems(order, edit) {
 			const row = edit.items[index] || {};
 			return `
     <li class="edit-order-line ${row.removed ? "muted-row" : ""}">
-      <span><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(stationLabels[item.station] || item.station || "")}</small></span>
+      <span><strong>${escapeHtml(item.name)}</strong></span>
       <input class="input compact" type="number" min="1" max="99" step="1" data-action="edit-order-quantity" data-id="${order.id}" data-index="${index}" value="${escapeHtml(row.quantity)}" ${row.removed ? "disabled" : ""}>
       <input class="input compact" type="number" min="0" step="0.01" data-action="edit-order-price" data-id="${order.id}" data-index="${index}" value="${escapeHtml(row.price)}" ${row.removed ? "disabled" : ""}>
       <input class="input compact edit-note" data-action="edit-order-note" data-id="${order.id}" data-index="${index}" value="${escapeHtml(row.note)}" placeholder="Note" ${row.removed ? "disabled" : ""}>
@@ -953,7 +779,7 @@ function renderOrderEditItems(order, edit) {
 	const addedItems = (edit.addedItems || [])
 		.map((item, index) => `
     <li class="edit-order-line">
-      <span><strong>${escapeHtml(item.name)}</strong><small>Manager</small></span>
+      <span><strong>${escapeHtml(item.name)}</strong><small>Added</small></span>
       <input class="input compact" type="number" min="1" max="99" step="1" data-action="edit-added-quantity" data-id="${order.id}" data-index="${index}" value="${escapeHtml(item.quantity)}">
       <input class="input compact" type="number" min="0" step="0.01" data-action="edit-added-price" data-id="${order.id}" data-index="${index}" value="${escapeHtml(item.price)}">
       <input class="input compact edit-note" data-action="edit-added-note" data-id="${order.id}" data-index="${index}" value="${escapeHtml(item.note)}" placeholder="Note">
@@ -977,62 +803,36 @@ function renderOrderEditProductPicker(order, edit) {
 }
 
 function orderCard(order, context) {
-	const status = order.paymentStatus === "paid" ? "paid" : order.status;
-	const stationContextInfo = stationContextParts(context);
-	const station = stationContextInfo.station;
-	const stationBatchId = stationContextInfo.batchId;
-	const stationContext = Boolean(station);
-	const stationStatus = stationContext && order.stationStatuses ? order.stationStatuses[station] : null;
-	const batchStatus = stationContext && stationBatchId && stationStatus && stationStatus.batches
-		? stationStatus.batches[stationBatchId]
-		: stationStatus;
 	const edit = canEditOrder(order, context) ? state.orderEdits[order.id] : null;
-	const stationItems = station ? order.items.filter((item) => item.station === station) : [];
-	const stationBatchItems = stationBatchId
-		? stationItems.filter((item) => item.batchId === stationBatchId)
-		: batchStatus && batchStatus.batchId
-			? stationItems.filter((item) => item.batchId === batchStatus.batchId)
-		: stationItems;
-	const displayItems = station
-		? (stationBatchItems.length ? stationBatchItems : stationItems)
-		: order.items.filter((item) => !isAutoPizzaBrut(item));
-	const items = edit ? renderOrderEditItems(order, edit) : displayItems
+	const items = edit ? renderOrderEditItems(order, edit) : order.items
 		.map(
 			(item) => `
     <li>
-      <span><strong>${item.quantity}x ${escapeHtml(item.name)}</strong><small>${stationContext ? "" : escapeHtml(stationLabels[item.station] || item.station || "")}${item.note ? `${stationContext ? "" : " - "}${escapeHtml(item.note)}` : ""}</small></span>
-      ${stationContext ? "" : `<strong>${money(item.price * item.quantity)}</strong>`}
+      <span><strong>${item.quantity}x ${escapeHtml(item.name)}</strong>${item.note ? `<small>${escapeHtml(item.note)}</small>` : ""}</span>
+      <strong>${money(item.price * item.quantity)}</strong>
     </li>
   `,
 		)
-		.join("") || (stationContext ? `<li><span><strong>Check with waiter</strong><small>This order has no visible items for this station.</small></span></li>` : "");
-	const stationSummary = order.stationStatuses
-		? Object.keys(order.stationStatuses)
-				.map((key) => `<span class="status ${order.stationStatuses[key].status}">${stationLabels[key]}: ${statusLabels[order.stationStatuses[key].status]}</span>`)
-				.join("")
-		: "";
-	const displayedAt = stationContext
-		? (stationBatchId || (batchStatus && batchStatus.batchId) || order.createdAt)
-		: order.createdAt;
+		.join("");
+	const closedLabel = order.paymentStatus === "paid" ? "Paid" : order.paymentStatus === "void" ? "Canceled" : "";
 
 	return `
     <article class="order-card ${order.paymentStatus !== "open" ? "closed" : ""}">
       <div class="order-card-header">
         <div>
           <h3>#${order.number} - ${edit ? `<input class="input compact" data-action="edit-order-table" data-id="${order.id}" value="${escapeHtml(edit.table)}">` : escapeHtml(order.table)}</h3>
-          <p>${escapeHtml(order.waiterName)} - ${new Date(displayedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>
+          <p>${escapeHtml(order.waiterName)} - ${new Date(order.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>
         </div>
-        <span class="status ${status}">${statusLabels[status] || status}</span>
+        ${closedLabel ? `<span class="status ${order.paymentStatus}">${closedLabel}</span>` : ""}
       </div>
-      <div class="order-card-body ${stationContext ? "station-card-body" : ""}">
-        ${order.paymentStatus === "open" ? `<div class="station-summary">${stationSummary}</div>` : ""}
+      <div class="order-card-body">
         <ul class="line-items">${items}</ul>
         ${edit ? renderOrderEditProductPicker(order, edit) : ""}
-        ${edit ? `<textarea class="textarea" data-action="edit-order-notes" data-id="${order.id}" placeholder="Order note">${escapeHtml(edit.notes)}</textarea>` : order.notes ? `<p class="${stationContext ? "station-order-note" : ""}"><strong>Note:</strong> ${escapeHtml(order.notes)}</p>` : ""}
-        ${!stationContext && order.discount ? `<div class="line"><span>Discount</span><strong>-${money(order.discount)}</strong></div>` : ""}
-        ${stationContext ? "" : `<div class="total-row"><span>Total</span><span>${money(order.total)}</span></div>`}
-        ${!stationContext && order.payment ? `<p>Payment: ${escapeHtml(order.payment.method)}${order.payment.tip ? `, tip ${money(order.payment.tip)}` : ""}</p>` : ""}
-        ${!stationContext && order.paymentStatus === "void" ? `<p>Void: ${escapeHtml(order.canceledReason)}</p>` : ""}
+        ${edit ? `<textarea class="textarea" data-action="edit-order-notes" data-id="${order.id}" placeholder="Order note">${escapeHtml(edit.notes)}</textarea>` : order.notes ? `<p><strong>Note:</strong> ${escapeHtml(order.notes)}</p>` : ""}
+        ${order.discount ? `<div class="line"><span>Discount</span><strong>-${money(order.discount)}</strong></div>` : ""}
+        <div class="total-row"><span>Total</span><span>${money(order.total)}</span></div>
+        ${order.payment ? `<p>Payment: ${escapeHtml(order.payment.method)}${order.payment.tip ? `, tip ${money(order.payment.tip)}` : ""}</p>` : ""}
+        ${order.paymentStatus === "void" ? `<p>Canceled: ${escapeHtml(order.canceledReason)}</p>` : ""}
         ${orderActions(order, context)}
       </div>
     </article>
@@ -1049,22 +849,6 @@ function orderActions(order, context) {
       <button class="small-action" data-action="cancel-order-edit" data-id="${order.id}">Cancel edit</button>
     </div>
   `;
-	}
-	if (context && context.indexOf("station:") === 0) {
-		const { station, batchId } = stationContextParts(context);
-		const batch = batchId && order.stationStatuses && order.stationStatuses[station] && order.stationStatuses[station].batches
-			? order.stationStatuses[station].batches[batchId]
-			: order.stationStatuses && order.stationStatuses[station];
-		const stationStatus = batch ? batch.status : "";
-		const pendingStatus = state.pendingStatusActions[statusActionKey(order.id, station, batchId)] || "";
-		const statusPending = Boolean(pendingStatus);
-		return `
-      <div class="order-actions">
-        <button class="small-action" data-action="status" data-id="${order.id}" data-station="${station}" data-batch-id="${escapeHtml(batchId)}" data-status="received" ${statusPending || stationStatus !== "sent" ? "disabled" : ""}>${pendingStatus === "received" ? "Saving..." : "Confirm"}</button>
-        <button class="small-action" data-action="status" data-id="${order.id}" data-station="${station}" data-batch-id="${escapeHtml(batchId)}" data-status="preparing" ${statusPending || stationStatus !== "received" ? "disabled" : ""}>${pendingStatus === "preparing" ? "Saving..." : "Prepare"}</button>
-        <button class="small-action ready" data-action="status" data-id="${order.id}" data-station="${station}" data-batch-id="${escapeHtml(batchId)}" data-status="done" ${statusPending || ["received", "preparing"].indexOf(stationStatus) === -1 ? "disabled" : ""}>${pendingStatus === "done" ? "Saving..." : "Done"}</button>
-      </div>
-    `;
 	}
 	return `
     <div class="payment-box">
@@ -1088,7 +872,7 @@ function renderLogin() {
         <div class="field"><label>Username</label><input class="input" data-action="login-username" value="${escapeHtml(state.login.username)}"></div>
         <div class="field"><label>Password</label><input class="input" type="password" data-action="login-password" value="${escapeHtml(state.login.password)}"></div>
         <button class="primary" data-action="login">Log in</button>
-        <p class="empty">Defaults: kitchen/kitchen123, bartender/bar123, pizzaman/pizza123.</p>
+        <p class="empty">Use the username and password given by the admin.</p>
       </section>
       ${state.toast ? `<div class="toast">${escapeHtml(state.toast)}</div>` : ""}
     </main>
@@ -1153,14 +937,14 @@ function renderActiveTableTiles(orders) {
 	return `<div class="active-table-grid">${orders.map((order) => `
     <button class="active-table-card ${selectedActiveOrder() && selectedActiveOrder().id === order.id ? "active" : ""}" data-action="select-active-order" data-id="${order.id}">
       <strong>${escapeHtml(order.table)}</strong>
-      <span>#${order.number} - ${statusLabels[order.status] || order.status}</span>
+      <span>#${order.number} - ${escapeHtml(order.waiterName)}</span>
       <small>${money(order.total)}</small>
     </button>
   `).join("")}</div>`;
 }
 
 function renderWaiterActiveOrders() {
-	const filterEnabled = isHeadWaiter() || (state.me && state.me.role === "admin");
+	const filterEnabled = state.me && state.me.role === "admin";
 	if (!filterEnabled) {
 		const orders = waiterOwnActiveOrders();
 		const selected = selectedActiveOrder();
@@ -1172,16 +956,13 @@ function renderWaiterActiveOrders() {
     `;
 	}
 	const groups = groupedActiveOrders();
-	const waiterOptions = waiterOptionsForHeadWaiter();
-	const filterAction = isHeadWaiter() ? "head-waiter-filter" : "manager-waiter-filter";
+	const waiterOptions = Object.entries(groups).map(([id, group]) => [id, group.waiterName]);
 	const selector = `
     <div class="field compact-field">
       <label>Waiter</label>
-      <select class="select compact" data-action="${filterAction}">
-        ${isHeadWaiter()
-					? `<option value="mine" ${state.headWaiterFilter === "mine" ? "selected" : ""}>Porosit e mia</option>`
-					: `<option value="all" ${state.managerWaiterFilter === "all" ? "selected" : ""}>All waiters</option>`}
-        ${waiterOptions.map(([id, name]) => `<option value="${escapeHtml(id)}" ${(isHeadWaiter() ? state.headWaiterFilter : state.managerWaiterFilter) === id ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}
+      <select class="select compact" data-action="manager-waiter-filter">
+        <option value="all" ${state.managerWaiterFilter === "all" ? "selected" : ""}>All waiters</option>
+        ${waiterOptions.map(([id, name]) => `<option value="${escapeHtml(id)}" ${state.managerWaiterFilter === id ? "selected" : ""}>${escapeHtml(name)}</option>`).join("")}
       </select>
     </div>
   `;
@@ -1242,7 +1023,7 @@ function renderWaiter() {
 			if (!product) return "";
 			return `
       <div class="cart-item">
-        <div><h3>${escapeHtml(product.name)}</h3><p>${money(product.price)} each</p><input class="input" data-action="cart-note" data-id="${product.id}" value="${escapeHtml(item.note)}" placeholder="Kitchen note" ${orderDraftLocked() ? "disabled" : ""}></div>
+        <div><h3>${escapeHtml(product.name)}</h3><p>${money(product.price)} each</p><input class="input" data-action="cart-note" data-id="${product.id}" value="${escapeHtml(item.note)}" placeholder="Note" ${orderDraftLocked() ? "disabled" : ""}></div>
         <div class="quantity"><button class="icon-button" data-action="cart-minus" data-id="${product.id}" ${orderDraftLocked() ? "disabled" : ""}>-</button><strong>${item.quantity}</strong><button class="icon-button" data-action="cart-plus" data-id="${product.id}" ${orderDraftLocked() ? "disabled" : ""}>+</button></div>
       </div>
     `;
@@ -1270,35 +1051,9 @@ function renderWaiter() {
       <aside class="panel"><div class="panel-header"><div><h2>Ticket</h2><p>${state.cart.length} item${state.cart.length === 1 ? "" : "s"}</p></div></div>
         <div class="panel-body"><div class="cart-list">${cart || `<p class="empty">Tap products to add them.</p>`}</div><div class="cart-footer"><div class="total-row"><span>Total</span><span>${money(cartTotal())}</span></div><button class="primary" data-action="send-order" ${canSendOrder() ? "" : "disabled"}>${state.orderSending ? "Sending..." : state.orderSubmission ? "Retry send" : "Send order"}</button></div></div>
       </aside>
-      <section class="panel span"><div class="panel-header"><div><h2>My active orders</h2><p>Close paid orders only after every required station marks its part done.</p></div></div><div class="panel-body"><div class="order-list" data-active-orders>${renderWaiterActiveOrders()}</div></div></section>
+      <section class="panel span"><div class="panel-header"><div><h2>My active orders</h2><p>Orders stay here until they are paid or canceled.</p></div></div><div class="panel-body"><div class="order-list" data-active-orders>${renderWaiterActiveOrders()}</div></div></section>
     </div>
   `;
-}
-
-function renderStation(station) {
-	const columns = [
-		{ title: "New", statuses: ["sent"] },
-		{ title: "Cooking", statuses: ["received", "preparing"] },
-		{ title: "Ready", statuses: ["done"] },
-	];
-	return `<section class="station-board"><div class="panel station-hero"><div class="panel-header"><div><h2>${stationLabels[station]} orders</h2><p>Receive and complete only the items assigned to this station.</p></div></div></div><div class="kitchen-grid">${columns
-		.map((column) => {
-			const rendered = new Set();
-			const cards = activeOrders().flatMap((order) => (
-				stationBatchEntries(order, station)
-					.filter((batch) => column.statuses.indexOf(batch.status) > -1)
-					.filter((batch) => order.items.some((item) => item.station === station && (!batch.batchId || item.batchId === batch.batchId)))
-					.filter((batch) => {
-						const key = `${order.id}:${station}:${batch.batchId || ""}`;
-						if (rendered.has(key)) return false;
-						rendered.add(key);
-						return true;
-					})
-					.map((batch) => orderCard(order, `station:${station}:${encodeURIComponent(batch.batchId || "")}`))
-			));
-			return `<div class="column"><h2>${stationLabels[station]} - ${column.title}</h2><div class="order-list">${cards.join("") || `<p class="empty">Nothing here.</p>`}</div></div>`;
-		})
-		.join("")}</div></section>`;
 }
 
 function renderReports() {
@@ -1419,24 +1174,15 @@ function renderAdmin() {
 
 function renderShell() {
 	const body =
-		state.view === "kitchen"
-			? renderStation("kitchen")
-			: state.view === "bar"
-				? renderStation("bar")
-				: state.view === "pizza"
-					? renderStation("pizza")
-			: state.view === "reports"
-				? renderReports()
-				: state.view === "staff"
-					? renderStaff()
-					: state.view === "admin"
-						? renderAdmin()
-						: renderWaiter();
+		state.view === "reports"
+			? renderReports()
+			: state.view === "staff"
+				? renderStaff()
+				: state.view === "admin"
+					? renderAdmin()
+					: renderWaiter();
 	const labels = {
 		waiter: "Waiter",
-		bar: "Bartender",
-		pizza: "Pizzaman",
-		kitchen: "Kitchen",
 		reports: "Reports",
 		staff: "Staff",
 		admin: "Menu",
@@ -1548,7 +1294,6 @@ app.addEventListener("click", async (event) => {
 		render();
 	}
 	if (action === "send-order") sendOrder();
-	if (action === "status") setStatus(target.dataset.id, target.dataset.status, target.dataset.station, target.dataset.batchId);
 	if (action === "paid") payOrder(target.dataset.id);
 	if (action === "cancel") cancelOrder(target.dataset.id);
 	if (action === "edit-order") beginEditOrder(target.dataset.id);
@@ -1652,10 +1397,6 @@ app.addEventListener("change", async (event) => {
 	if (action === "waiter-active") state.waiterForm.active = t.checked;
 	if (action === "take-away-new-order") {
 		state.takeAwayNewOrder = t.checked;
-		render();
-	}
-	if (action === "head-waiter-filter") {
-		state.headWaiterFilter = t.value;
 		render();
 	}
 	if (action === "manager-waiter-filter") {
