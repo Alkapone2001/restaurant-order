@@ -136,7 +136,7 @@ Change these immediately before real use.
 
 | Role | Username | Password |
 | --- | --- | --- |
-| Admin | `valon` | `palma5valon` |
+| Admin | `qendresa` | `rigera` |
 
 Waiters are created by the admin in the Staff tab.
 
