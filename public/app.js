@@ -4,6 +4,7 @@ const state = {
 	settings: null,
 	users: [],
 	products: [],
+	tables: [],
 	orders: [],
 	tableLocks: [],
 	audit: [],
@@ -38,6 +39,7 @@ const state = {
 		sort: 999,
 	},
 	waiterForm: { id: "", name: "", username: "", password: "", active: true },
+	tableForm: { name: "", section: "Tables" },
 	orderEdits: {},
 	closeDay: { countedCash: "", note: "" },
 	toast: "",
@@ -86,11 +88,19 @@ function newRequestKey() {
 
 const app = document.getElementById("app");
 let refreshInFlight = false;
-const tableSections = [
-	{ title: "Tables", tables: Array.from({ length: 18 }, (_, index) => String(index + 1)) },
-	{ title: "Terasa", tables: ["Terasa 1", "Terasa 2"] },
-	{ title: "Salla", tables: ["Salla 1", "Salla 2", "Salla 3", "Salla 4"] },
-];
+
+function tableSectionGroups() {
+	const groups = [];
+	for (const table of state.tables) {
+		let group = groups.find((item) => item.title === table.section);
+		if (!group) {
+			group = { title: table.section, tables: [] };
+			groups.push(group);
+		}
+		group.tables.push(table.name);
+	}
+	return groups;
+}
 const productCategories = [
 	"Pizza",
 	"Soups",
@@ -250,7 +260,7 @@ async function api(path, options) {
 
 function allowedViews() {
 	if (!state.me) return [];
-	if (state.me.role === "admin") return ["waiter", "reports", "staff", "admin"];
+	if (state.me.role === "admin") return ["waiter", "reports", "staff", "tables", "admin"];
 	return ["waiter"];
 }
 
@@ -265,13 +275,14 @@ async function bootstrap() {
 		state.settings = data.settings;
 		state.users = data.users || [];
 		state.products = data.products;
+		state.tables = data.tables || [];
 		state.orders = data.orders;
 		state.tableLocks = data.tableLocks || [];
 		restoreOrderSubmission();
 		if (allowedViews().indexOf(state.view) === -1)
 			state.view = allowedViews()[0];
 		if (state.view === "reports") await loadReport();
-		if (state.view === "admin" || state.view === "staff") await loadAudit();
+		if (state.view === "admin" || state.view === "staff" || state.view === "tables") await loadAudit();
 		render();
 	} catch (error) {
 		toast(error.message);
@@ -591,6 +602,34 @@ async function deleteProduct(id) {
 	}
 }
 
+async function saveTable() {
+	try {
+		const table = await api("/api/tables", {
+			method: "POST",
+			body: JSON.stringify(state.tableForm),
+		});
+		state.tables = state.tables.concat(table);
+		state.tableForm = { name: "", section: table.section };
+		await loadAudit();
+		toast(`${table.name} added`);
+	} catch (error) {
+		toast(error.message);
+	}
+}
+
+async function deleteTable(name) {
+	if (!confirm(`Remove table ${name}?`)) return;
+	try {
+		const removed = await api(`/api/tables/${encodeURIComponent(name)}`, { method: "DELETE" });
+		state.tables = state.tables.filter((table) => table.name !== removed.name);
+		if (state.table === removed.name) state.table = "";
+		await loadAudit();
+		toast(`${removed.name} removed`);
+	} catch (error) {
+		toast(error.message);
+	}
+}
+
 function resetProductForm() {
 	state.productForm = {
 		id: "",
@@ -880,7 +919,7 @@ function renderLogin() {
 }
 
 function renderTableSelector() {
-	const sections = tableSections.map((section) => `
+	const sections = tableSectionGroups().map((section) => `
     <div class="table-section">
       <h3>${escapeHtml(section.title)}</h3>
       <div class="table-grid">
@@ -915,9 +954,7 @@ function renderTableSelector() {
       <span><i class="legend-dot occupied"></i>Occupied</span>
     </div>
     <div class="table-selector ${state.takeAway ? "muted-row" : ""}" data-table-selector>
-      ${sections}
-    </div>
-    </div>
+    ${sections || `<p class="empty">No tables yet. An admin can add them under Tables.</p>`}
   `;
 }
 
@@ -1172,19 +1209,54 @@ function renderAdmin() {
   `;
 }
 
+function renderTables() {
+	const groups = tableSectionGroups();
+	const rows = groups
+		.map(
+			(group) => `
+    <h3 class="table-admin-section">${escapeHtml(group.title)}</h3>
+    <div class="admin-list">${group.tables
+			.map(
+				(name) => `
+      <div class="admin-row">
+        <span><strong>${escapeHtml(name)}</strong></span>
+        <div class="row-actions"><button class="small-action danger" data-action="delete-table" data-id="${escapeHtml(name)}">Remove</button></div>
+      </div>`,
+			)
+			.join("")}</div>`,
+		)
+		.join("");
+	return `
+    <section class="admin-grid">
+      <div class="panel"><div class="panel-header"><div><h2>Add table</h2><p>Tables waiters can select when taking orders.</p></div></div>
+        <div class="panel-body cart-list">
+          <div class="field"><label>Table name</label><input class="input" data-action="new-table-name" value="${escapeHtml(state.tableForm.name)}" placeholder="e.g. 1, Terrace 2"></div>
+          <div class="field"><label>Section</label><input class="input" data-action="new-table-section" value="${escapeHtml(state.tableForm.section)}" placeholder="e.g. Tables, Terrace"></div>
+          <button class="primary" data-action="save-table">Add table</button>
+        </div>
+      </div>
+      <div class="panel"><div class="panel-header"><div><h2>Tables</h2><p>${state.tables.length} tables.</p></div></div><div class="panel-body"><div class="admin-list">${rows || `<p class="empty">No tables yet.</p>`}</div></div></div>
+      <div class="panel span"><div class="panel-header"><div><h2>Audit log</h2><p>Latest operational changes.</p></div></div><div class="panel-body"><div class="admin-list">${state.audit.map((item) => `<div class="admin-row"><span><strong>${escapeHtml(item.action)}</strong><small>${escapeHtml(item.userName)} - ${new Date(item.at).toLocaleString()}</small></span></div>`).join("") || `<p class="empty">No audit entries.</p>`}</div></div></div>
+    </section>
+  `;
+}
+
 function renderShell() {
 	const body =
 		state.view === "reports"
 			? renderReports()
 			: state.view === "staff"
 				? renderStaff()
-				: state.view === "admin"
-					? renderAdmin()
-					: renderWaiter();
+				: state.view === "tables"
+					? renderTables()
+					: state.view === "admin"
+						? renderAdmin()
+						: renderWaiter();
 	const labels = {
 		waiter: "Waiter",
 		reports: "Reports",
 		staff: "Staff",
+		tables: "Tables",
 		admin: "Menu",
 	};
 	return `
@@ -1242,7 +1314,7 @@ app.addEventListener("click", async (event) => {
 	if (target.dataset.view) {
 		state.view = target.dataset.view;
 		if (state.view === "reports") await loadReport();
-		if (state.view === "admin" || state.view === "staff") await loadAudit();
+		if (state.view === "admin" || state.view === "staff" || state.view === "tables") await loadAudit();
 		render();
 		return;
 	}
@@ -1327,6 +1399,8 @@ app.addEventListener("click", async (event) => {
 			render();
 		}
 	}
+	if (action === "save-table") saveTable();
+	if (action === "delete-table") deleteTable(target.dataset.id);
 	if (action === "save-product") saveProduct();
 	if (action === "edit-product") editProduct(target.dataset.id);
 	if (action === "delete-product") deleteProduct(target.dataset.id);
@@ -1364,6 +1438,8 @@ app.addEventListener("input", (event) => {
 	}
 	if (action === "pay-discount") state.payment.discount = t.value;
 	if (action === "pay-tip") state.payment.tip = t.value;
+	if (action === "new-table-name") state.tableForm.name = t.value;
+	if (action === "new-table-section") state.tableForm.section = t.value;
 	if (action === "product-name") state.productForm.name = t.value;
 	if (action === "product-category") state.productForm.category = t.value;
 	if (action === "product-price") state.productForm.price = t.value;

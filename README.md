@@ -144,7 +144,8 @@ Waiters are created by the admin in the Staff tab.
 
 - Waiter creates a table order and sends it. Waiters see only their own open orders.
 - Orders have no preparation status. Waiter (own orders) or admin (any open order) marks an order paid with payment method, discount, and tip, or cancels it (admin only).
-- Admin has the same page as waiters, plus Reports (per-waiter totals, voids, payment methods), Staff (add, edit, remove waiters), and Menu (products and prices).
+- Admin has the same page as waiters, plus Reports (per-waiter totals, voids, payment methods), Staff (add, edit, remove waiters), Tables (add or remove the tables waiters can select, grouped by section), and Menu (products and prices).
+- No tables exist by default. Take away (`Me Veti`) is always available.
 - Important actions are stored in the audit log.
 
 ## Environment Variables
