@@ -907,7 +907,7 @@ function renderLogin() {
 	return `
     <main class="login-screen">
       <section class="login-card">
-        <div class="brand big"><div class="brand-mark">RO</div><div><h1>Restaurant Orders</h1><span>Secure staff access</span></div></div>
+        <div class="brand big"><div class="brand-mark">R</div><div><h1>Rigera</h1><span>Secure staff access</span></div></div>
         <div class="field"><label>Username</label><input class="input" data-action="login-username" value="${escapeHtml(state.login.username)}"></div>
         <div class="field"><label>Password</label><input class="input" type="password" data-action="login-password" value="${escapeHtml(state.login.password)}"></div>
         <button class="primary" data-action="login">Log in</button>
@@ -1262,7 +1262,7 @@ function renderShell() {
 	return `
     <div class="app-shell">
       <header class="topbar">
-        <div class="brand"><div class="brand-mark">RO</div><div><h1>${escapeHtml((state.settings && state.settings.restaurantName) || "Restaurant Orders")}</h1><span>${escapeHtml(state.me.name)} - ${escapeHtml(state.me.role)}</span></div></div>
+        <div class="brand"><div class="brand-mark">R</div><div><h1>${escapeHtml((state.settings && state.settings.restaurantName) || "Rigera")}</h1><span>${escapeHtml(state.me.name)} - ${escapeHtml(state.me.role)}</span></div></div>
         <nav class="tabs">${allowedViews()
 					.map(
 						(view) =>

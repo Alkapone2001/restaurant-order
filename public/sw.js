@@ -6,7 +6,7 @@ self.addEventListener("push", (event) => {
     data = {};
   }
 
-  const title = data.title || "Restaurant Orders";
+  const title = data.title || "Rigera";
   const options = {
     body: data.body || "New update",
     tag: data.tag || "restaurant-order",

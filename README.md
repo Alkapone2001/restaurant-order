@@ -1,4 +1,4 @@
-# Restaurant Orders
+# Rigera
 
 A restaurant ordering app with waiter order-taking, payment closing, daily reporting, role-based login (admin and waiter), menu administration, staff management, and audit history.
 

@@ -1,11 +1,11 @@
 {
-  "name": "Restaurant Orders",
-  "short_name": "Orders",
+  "name": "Rigera",
+  "short_name": "Rigera",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#eef3f8",
-  "theme_color": "#152238",
+  "background_color": "#fbf5f0",
+  "theme_color": "#4c0519",
   "icons": [
     {
       "src": "/icon.svg",
